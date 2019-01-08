@@ -1,0 +1,20 @@
+# INFLUXDB #
+
+---
+
+## 1.Concepts ##
+
+### 1.1 RETENTION POLICY ###
+
+*1.创建*
+
+CREATE RETENTION POLICY <retention_policy_name> ON <database_name> DURATION <duration> REPLICATION <n> [SHARD DURATION <duration>] [DEFAULT]
+
+EX:
+	CREATE RETENTION POLICY 90_days ON sms DURATION 90d REPLICATION 1 DEFAULT
+
+*2.显示*
+SHOW RETENTION POLICIES
+
+
+
