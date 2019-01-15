@@ -14,7 +14,11 @@ ex:
 
 bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic sms
 
-*1.2 生产数据*
+*1.2显示TOPIC*
+
+bin/kafka-topics.sh -zookeeper localhsot:2181 --list
+
+*1.3 生产数据*
 bin/kafka-console-producer.sh --broker-list localhost:9092 --topic "sms"
 
 ## 数据完整性 ##
