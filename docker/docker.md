@@ -7,7 +7,6 @@
 
 ## 目录结构 ##
 
-..
 -> api
 -> builder
 -> cli
@@ -53,3 +52,20 @@
 		-> runDaemon(opts)
 			-> daemonCli := NewDaemonCli()
 			-> daemonCli.start(opts)
+
+	-> func (cli *DaemonCli) start(opts *daemonOptions) (err error) {}
+
+		-> serverConfig, err := newAPIServerConfig(cli)	// 设置API服务配置
+
+		-> cli.api = apiserver.New(serverConfig) // 初始化服务配置
+
+		-> hosts, err := loadListeners(cli, serverConfig) // 建立tcp listen,并且设置http server
+
+		-> opts, err := cli.getContainerdDaemonOpts() // 获取ContainerdDameon 配置函数
+
+		-> r, err := supervisor.Start(ctx, filepath.Join(cli.Config.Root, "containerd"), filepath.Join(cli.Config.ExecRoot, "containerd"), opts...) // 启动containerd daemon和监控它
+
+			-> err := opt(r) // 执行配置函数
+
+			-> go r.monitorDaemon(ctx) //
+
