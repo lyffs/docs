@@ -1,0 +1,7 @@
+# NameSpace #
+
+-> USER
+
+	-> 同样一个用户的USER ID 和 GROUP ID 在不同的USER NAMESPACE中可能不一样（与PID NAMESPACE类似）。换一句话说，就是在一个USER NAMESPAC中是普通用户，在另外一个 USER NAMESPACE中可能是root用户。 除了系统默认USER NAMESPACE外，所有的USER NAMESPACE都有一个父 USER NAMESPACE。在一个进程中，调用unshare或者clone 创建新的USER NAMESAPCE时，当前进程的USER NAMESPACE为父 USER NAMESPACE，新的USER NAMESPACE为子USER NAMESPACE。
+
+	-> 

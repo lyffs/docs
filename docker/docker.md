@@ -83,7 +83,7 @@
 
 		-> err := cli.initMiddlewares(cli.api, serverConfig, pluginStore) // 初始化中间件
 
-			-> good use:
+			-> good code:
 
 			```
 			// WrapHandler returns a new handler function wrapping the previous one in the request chain.
@@ -96,3 +96,26 @@
 			```
 
 		-> d, err := daemon.NewDaemon(ctx, cli.Config, pluginStore)	// 实例化daemon
+
+			-> setDefaultMtu(config) // 设置mtu=1500
+
+			-> registryService, err := registry.NewService(config.ServiceOptions) // 新建registry service
+
+			-> err := ModifyRootKeyLimit() // 确保 root_key_limit 正确,判断内核值：kernel.keys.root_maxkeys
+
+			-> err := verifyDaemonSettings(config) // 检查配置是否正确
+
+			-> setupResolvConf(config)  // 设置resolve.conf /run/systemd/resolve/resolv.conf
+
+			-> err := checkSystem() // docker daemon 运行需要root权限，kernel版本最低为 3.10.0
+
+			-> idMapping, err := setupRemappedRoot(config) // 据配置映射容器用户和组的
+
+			-> rootIDs := idMapping.RootPair() // 
+
+			-> err := setupDaemonProcess(config) // 设置daemon 进程
+
+				-> setupOOMScoreAdj(score int) // 修改OOM 阈值，/proc/self/oom_score_adj
+
+				-> err := setMayDetachMounts() // /proc/sys/fs/may_detach_mounts
+			-> 	
