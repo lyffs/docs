@@ -118,4 +118,25 @@
 				-> setupOOMScoreAdj(score int) // 修改OOM 阈值，/proc/self/oom_score_adj
 
 				-> err := setMayDetachMounts() // /proc/sys/fs/may_detach_mounts
-			-> 	
+
+			-> 	tmp, err := prepareTempDir(config.Root, rootIDs) // 创建tmp文件夹
+
+			-> d := &Daemon{
+					configStore: config,
+					PluginStore: pluginStore,
+					startupDone: make(chan struct{}),
+				}
+
+			-> d.setupDumpStackTrap(stackDumpDir)
+			
+				-> path, err := stackdump.DumpStacks(root)	// 将goroutine stack 堆栈信息写文件
+
+			-> err := d.setupSeccompProfile(); // 设置SeccompProfile
+
+			-> configureMaxThreads(config) // 文件/proc/sys/kernel/threads-max值的 90%
+
+			-> ensureDefaultAppArmorProfile() // AppArmor linux安全应用，控制应用的各种权限
+
+			->  idtools.MkdirAllAndChown(daemonRepo, 0700, rootIDs);
+
+			-> metricsSockPath, err := d.listenMetricsSock() //
