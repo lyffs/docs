@@ -137,6 +137,16 @@
 
 			-> ensureDefaultAppArmorProfile() // AppArmor linux安全应用，控制应用的各种权限
 
-			->  idtools.MkdirAllAndChown(daemonRepo, 0700, rootIDs);
+			-> idtools.MkdirAllAndChown(daemonRepo, 0700, rootIDs);
 
 			-> metricsSockPath, err := d.listenMetricsSock() //
+
+			-> c, err := createAndStartCluster(cli, d) // 创建和启动swarm集群
+
+			-> d.RestartSwarmContainers()
+
+				-> err := daemon.containerStart(c, "", "", true)
+
+					-> err := daemon.conditionalMountOnStart(container)
+
+			-> err := daemon.initializeNetworking(container)		
