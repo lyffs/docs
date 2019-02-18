@@ -1,6 +1,6 @@
 # Docker 源码分析 #
 
-	参考地址：https://hk.saowen.com/a/df55dda06ed23b9d1a48e8f254e931ef5e7cb5bb0bc9d405cca876c804770d31
+	参考地址：https://www.kancloud.cn/infoq/docker-source-code-analysis/80525
 
 
 ---
@@ -149,4 +149,14 @@
 
 					-> err := daemon.conditionalMountOnStart(container)
 
-			-> err := daemon.initializeNetworking(container)		
+					-> err := daemon.initializeNetworking(container)
+
+						-> 	err := daemon.allocateNetwork(container) // 申请网络
+
+							-> err := controller.SandboxDestroy(container.ID)
+
+								-> DeleteConntrackEntries(nlh *netlink.Handle, ipv4List []net.IP, ipv6List []net.IP)
+
+									-> flowPurged, err := purgeConntrackState(nlh, syscall.AF_INET, ipAddress)
+
+									-> 
