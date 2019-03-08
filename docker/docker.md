@@ -155,8 +155,50 @@
 
 							-> err := controller.SandboxDestroy(container.ID)
 
+								-> func (sb *sandbox) Delete() error
+
+									-> c.getNetworkFromStore(ep.getNetwork().ID())
+
+									-> ep.Leave(sb)
+
+										-> sb.joinLeaveStart()
+
+										-> ep.sbLeave(sb, false, options...) // endpoint leave sandbox
+
+											-> n, err := ep.getNetworkFromStore()
+
+											-> ep, err = n.getEndpointFromStore(ep.ID())
+
+											-> extEp := sb.getGatewayEndpoint()
+
+											-> d.RevokeExternalConnectivity(n.id, ep.id)
+
+												-> network, err := d.getNetwork(nid) //d: driver, 根据nid(网络id)获取网络
+
+												-> endpoint, err := network.getEndpoint(eid) //根据eid(endpoint id)获取endpoint
+
+												-> err = network.releasePorts(endpoint) //释放endpoint端口
+
+													->	err := n.releasePort(m)
+
+														-> host, err := bnd.HostAddr()
+
+														-> n.portMapper.Unmap(host) // bridgenetwork unmap （主机:端口）
+
+															-> 	
+
+											-> d.Leave(n.id, ep.id)
+
+										-> sb.joinLeaveEnd()
+
+
+ 
 								-> DeleteConntrackEntries(nlh *netlink.Handle, ipv4List []net.IP, ipv6List []net.IP)
 
 									-> flowPurged, err := purgeConntrackState(nlh, syscall.AF_INET, ipAddress)
 
 									-> 
+
+		
+
+												
