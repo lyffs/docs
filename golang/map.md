@@ -15,4 +15,12 @@
 
 	-> makeMap和makeSlice的区别是：当map和slice作为函数参数时，在函数参数内容部对map的操作会影响map自身；而对slice则不会。主要原因是：一个是指针，一个是结构体。
 
-	-> 
+	-> 计算哈希值时，加入hash0引入随机性。
+
+	->	key定位公式：
+		k:=add(unsafe.Pointer(b),dataOffset+i*uintptr(t.keysize))
+
+	->	value定位公式：
+		v:=add(unsafe.Pointer(b),dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.valuesize))	
+
+		

@@ -1,5 +1,8 @@
 # 调度器 # 
 
+参考：https://zhuanlan.zhihu.com/p/45959147
+https://povilasv.me/#
+
 -> 基本概念：
 	G: goroutine, 每个G代表一个goroutine
 	M: 工作线程, 是GO语言定义出来在用户层面描述系统线程的对象, 每个M代表一个系统线程。
@@ -20,3 +23,15 @@
 	分配到CPU的核上执行。
 
 -> 生命周期
+
+
+
+==
+
+	G = goroutine, P = logical processors  M = OS thread (execute G)
+
+	跟踪Schedule(调度器)， 设置环境变量： GODEBUG=scheddetail=1,schedtrace=1000
+
+	简单：GODEBUG=schedtrace=1000 ./msgserv.exe
+
+
