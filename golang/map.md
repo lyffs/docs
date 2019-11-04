@@ -23,4 +23,5 @@
 	->	value定位公式：
 		v:=add(unsafe.Pointer(b),dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.valuesize))	
 
-		
+-> 内存泄漏
+	https://cloud.tencent.com/developer/article/1437506		
