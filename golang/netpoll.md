@@ -2,7 +2,8 @@
 
 参考：https://taohuawu.club/go-netpoll-io-multiplexing-reactor
 		https://ninokop.github.io/2018/02/18/go-net/
-		
+		https://www.cnblogs.com/linguoguo/p/11699006.html
+
 
 
 -> 内核一旦发现进程指定的一个或者多个I/O条件（文件描述符的I/O条件）就绪，内核就通知进程，这个能力成为I/O复用。
