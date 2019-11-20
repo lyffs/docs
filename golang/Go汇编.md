@@ -9,9 +9,12 @@
 
 #### 栈调整
 	栈的调整是通过对硬件SP寄存器进行运行来实现。
+	如：
+	SUBQ $0x18, SP //为函数分配函数栈帧
+	ADDQ $0x18, SP //对SP做加法，清除函数栈帧
 
 #### 数据搬运
-	场数在plan9汇编用$num表示，可以为负数，默认情况下为十进制。搬运的长度是有MOV后缀决定的。
+	常数在plan9汇编用$num表示，可以为负数，默认情况下为十进制。搬运的长度是有MOV后缀决定的。
 	MOVB $1,DI // 1 byte
 	MOVW $0x10, BX // 2bytes
 	MOVD $1, DX // 4bytes
@@ -56,6 +59,17 @@
 
 #### 变量声明
 	在汇编所谓的变量，一般是存储在 .rodata或者 .data段中的只读值。对应到应用层的话，就是已初始化的全局的const，var，statics常量/变量。
+	使用DATA结合GLOBL来定义一个变量。DATA用法如下：
+	DATA symbol+offset(SB)/width, value
+
+	offset的函数是该值相对于符号symbol的偏移，而不是相对于全局某个地址的偏移。
+	使用GLOBL指令来将变量声明为global，额外接收2个参数，一个是flag，另外一个是变量的总大小。
+	GLOBL divtab(SB), RODATA, $64
+
+	定义数据，或字符串，这是需要用到非0的offset，例如：
+	DATA bio<>+0(SB)/8, $"oh yes i"
+	DATA bio<>+8(SB)/8, $"am here"
+	GLOBL bio<>(SB), RODATA, $16
 
 #### 函数声明
 	在plan9中TEXT是一个指令，用来定义一个函数。	
@@ -70,7 +84,7 @@
 		current func arg0
 		--------------------------------- <-------FP (pseudo FP)
 		caller ret addr
-	---	---------------------------------
+	---	--------------------------------- high address
 	 |	caller BP(*)
 	 |	--------------------------------- <-------SP (pseudo SP, 实际上是当前栈帧的BP位置)
 	 |	local var0
@@ -101,17 +115,24 @@
 	 |	call arg1 调用函数第一个参数
 	 |	-------------------------------- <--------- 硬件SP位置
 	 |	return addr 返回值地址
-	---	--------------------------------
+	---	-------------------------------- low address
 
 		栈是朝低地址方向增长的。
 
 ##### argsize和framesize计算规则
 	如函数申明：TEXT package·add(SB),NOSPLIT,$16-32
-	$16-32表示 $framesize-argsize。Go在函数调用时，参数和返回值都需要由caller 在其栈帧上备好空间。argsize计算方法是：参数大小求和+返回值大小求和。如入参是3个int64类型，返回值是1个int64类型，那么这里的argsize=sizeof(int64) * 4。
-	
+	argsize:caller（存储）
+	framesize:callee（存储）
+	`$16-32表示 $framesize-argsize。Go在函数调用时，参数和返回值都需要由caller再起栈帧上备好空间`
+	在其栈帧上备好空间。argsize计算方法是：参数大小求和+返回值大小求和。如入参是3个int64类型，返回值是1个int64类型，那么这里的argsize=sizeof(int64) * 4。
+	return address(rip)的值也是存储在caller的stack frame上的，但是这个过程是由CALL指令和RET指令完成PC寄存器的保存和恢复。	
 
+##### 地址运算
+	地址运算也是用LEA 指令，英文愿意为 Load Effective Addresss，amd64平台地址都是8个字节，所有直接就用LEAQ就好。
+	例子： LEAQ (BX)(AX*1), CX
 
 
 ## 参考资料
 
    参考资料：https://xargin.com/plan9-assembly/
+   https://www.cnblogs.com/landv/p/11589074.html
