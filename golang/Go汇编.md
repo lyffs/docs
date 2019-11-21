@@ -131,8 +131,35 @@
 	地址运算也是用LEA 指令，英文愿意为 Load Effective Addresss，amd64平台地址都是8个字节，所有直接就用LEAQ就好。
 	例子： LEAQ (BX)(AX*1), CX
 
+##### 示例
+	math.go
+	`
+	package main
+	import "fmt"
+	func add(a, b int)int //汇编声明
+	func main() {
+		fmt.Println(add(10,11))
+	}
+	`
+
+
+	math.s
+	`
+	#include "textflag.h"
+
+	TEXT .add(SB), NOSPLIT, $0-24
+		MOVQ a+0(FP), AX
+		MOVQ b+8(FP), BX
+		ADDQ BX, AX
+		MOVQ AX, ret+16(FP)
+		RET
+	`
+
+	把两个文件放在任意目录下，执行go build并运行就可以看到效果
+
 
 ## 参考资料
 
-   参考资料：https://xargin.com/plan9-assembly/
-   https://www.cnblogs.com/landv/p/11589074.html
+	参考资料：https://xargin.com/plan9-assembly/
+	https://www.cnblogs.com/landv/p/11589074.html
+	https://quasilyte.dev/blog/post/go-asm-complementary-reference/#external-resources
