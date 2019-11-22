@@ -123,8 +123,7 @@
 	如函数申明：TEXT package·add(SB),NOSPLIT,$16-32
 	argsize:caller（存储）
 	framesize:callee（存储）
-	`$16-32表示 $framesize-argsize。Go在函数调用时，参数和返回值都需要由caller再起栈帧上备好空间`
-	在其栈帧上备好空间。argsize计算方法是：参数大小求和+返回值大小求和。如入参是3个int64类型，返回值是1个int64类型，那么这里的argsize=sizeof(int64) * 4。
+	`$16-32表示 $framesize-argsize。Go在函数调用时，参数和返回值都需要由caller再起栈帧上备好空间`。argsize计算方法是：参数大小求和+返回值大小求和。如入参是3个int64类型，返回值是1个int64类型，那么这里的argsize=sizeof(int64) * 4。
 	return address(rip)的值也是存储在caller的stack frame上的，但是这个过程是由CALL指令和RET指令完成PC寄存器的保存和恢复。	
 
 ##### 地址运算
@@ -154,7 +153,7 @@
 		MOVQ AX, ret+16(FP)
 		RET
 	`
-
+	
 	把两个文件放在任意目录下，执行go build并运行就可以看到效果
 
 
@@ -163,3 +162,4 @@
 	参考资料：https://xargin.com/plan9-assembly/
 	https://www.cnblogs.com/landv/p/11589074.html
 	https://quasilyte.dev/blog/post/go-asm-complementary-reference/#external-resources
+	https://www.cnblogs.com/landv/p/11589074.html
