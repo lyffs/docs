@@ -166,6 +166,23 @@
 	
 	把两个文件放在任意目录下，执行go build并运行就可以看到效果
 
+##### 数据结构
+
+###### 数据类型
+	标准库的数值类型：
+	1.int/int8/int16/int32/int64
+	2.uint/uint8/uint16/uint32/uint64
+	3.float32/float64
+	4.byte/rune
+	5.uintpr
+
+	这些类型在汇编中就是一段储存着数据的连续内存，只是内存长度不一样，操作的时候看好数据长度就行。
+
+	1.struct
+	struct在汇编层面实际上就是一段连续内存，在作为参数传给函数时，会将其展开在caller的栈上传给对应的callee:
+
+
+
 
 ## 参考资料
 
@@ -175,3 +192,4 @@
 	https://www.cnblogs.com/landv/p/11589074.html
 	http://blog.studygolang.com/2013/05/asm_and_plan9_asm/
 	https://zhuanlan.zhihu.com/p/56750445?utm_campaign=studygolang.com&utm_medium=studygolang.com&utm_source=studygolang.com
+	https://lrita.github.io/2017/12/12/golang-asm/#why
