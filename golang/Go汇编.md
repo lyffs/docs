@@ -21,11 +21,19 @@
 	MOVQ $-10, AX // 8bytes
 
 #### 条件跳转
+##### section跳转
 	JMP addr //跳转到地址，地址可为代码中地址
 	JMP label //跳转到标签，可以跳转到同一函数内的标签位置
 	JMP 2(PC) //以当前指令为基础，向前/向后跳转X行
 	JMP -2(PC) //同上
 	JNZ target //如果zero flag被set过，则跳转
+
+##### 函数调用跳转
+	JMQ SP/BP 不会发生变化，栈空间不会发生变化。
+	CALL 栈空间会发生响应的变化，传递参数时，我们需要输入参数，返回值按之前将栈的布局安排在调用者的栈顶，然后在调用CALL函数来调用其函数，
+	调用CALL命令后，SP寄存器会下移一个WORD，然后进入新函数的栈空间执行。
+	
+
 
 #### 指令集
 	参考源代码arch 部分：https://github.com/golang/arch/blob/master/x86/x86.csv
@@ -77,6 +85,8 @@
 	TEXT package·add(SB),NOSPLIT,$32-32
 	 		|     |                | |
 	 		包名  函数名           栈帧大小 参数及返回值大小
+
+	 当有NOSPLIT表示时，可以不写输入参数，返回值占用的大小（这时会强行插入CALLER BP）		
 
 #### 栈结构
 
@@ -159,7 +169,9 @@
 
 ## 参考资料
 
-	参考资料：https://xargin.com/plan9-assembly/
+	https://xargin.com/plan9-assembly/
 	https://www.cnblogs.com/landv/p/11589074.html
 	https://quasilyte.dev/blog/post/go-asm-complementary-reference/#external-resources
 	https://www.cnblogs.com/landv/p/11589074.html
+	http://blog.studygolang.com/2013/05/asm_and_plan9_asm/
+	https://zhuanlan.zhihu.com/p/56750445?utm_campaign=studygolang.com&utm_medium=studygolang.com&utm_source=studygolang.com
