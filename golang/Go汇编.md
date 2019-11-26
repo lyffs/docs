@@ -79,6 +79,10 @@
 	DATA bio<>+8(SB)/8, $"am here"
 	GLOBL bio<>(SB), RODATA, $16
 
+	go编译器为了方便汇编访问struct的指定字段，会在编译过程中自动生成一个go_asm.h文件，可以通过#include "go_asm.h" 语言来引用，该文件中会生成该包内全部struct的每个字段的偏移量宏定义与结构体大小到的宏定义。
+
+	我们可以通过命令go tool compile -S -asmhdr dump.h *.go来导出相关文件编译过程中会生成的宏定义
+
 #### 函数声明
 	在plan9中TEXT是一个指令，用来定义一个函数。	
 
@@ -182,7 +186,8 @@
 	struct在汇编层面实际上就是一段连续内存，在作为参数传给函数时，会将其展开在caller的栈上传给对应的callee:
 
 
-
+##### 命令
+	
 
 ## 参考资料
 
