@@ -5,7 +5,13 @@
 
 ## 详情
 
-### Go几个虚拟寄存器
+### 场景
+	1.）算法加速，golang编译器生成的机器码基本上都是通用代码，优化程度一般，我们需要用到特殊优化逻辑、特殊的CPU指令让我们的算法运行速度更快。https://github.com/minio/sha256-simd
+	2.）摆脱golang编译器一些约束，如通过汇编调用其他package的私有函数。https://sitano.github.io/2016/04/28/golang-private/
+	3.）进行一些hack的事，通过汇编适配其他语言的ABI来直接调用其他语言的函数。 https://github.com/petermattis/fastcgo
+	4.）利用 //go:noescape 进行内存分配优化，golang编译器拥有逃逸分析，用于决定每一个变量是分配在堆内存、还是函数栈。https://github.com/golang/go/blob/d1fa58719e171afedfbcdf3646ee574afc08086c/src/reflect/value.go#L2585-L2597
+
+#### Go几个虚拟寄存器
 
 #### 栈调整
 	栈的调整是通过对硬件SP寄存器进行运行来实现。
@@ -191,6 +197,7 @@
 
 ## 参考资料
 
+	https://github.com/yangyuqian/technical-articles/blob/master/asm/golang-plan9-assembly-cn.md
 	https://xargin.com/plan9-assembly/
 	https://www.cnblogs.com/landv/p/11589074.html
 	https://quasilyte.dev/blog/post/go-asm-complementary-reference/#external-resources
