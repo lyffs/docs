@@ -198,3 +198,7 @@
 	http://blog.studygolang.com/2013/05/asm_and_plan9_asm/
 	https://zhuanlan.zhihu.com/p/56750445?utm_campaign=studygolang.com&utm_medium=studygolang.com&utm_source=studygolang.com
 	https://lrita.github.io/2017/12/12/golang-asm/#why
+	https://blog.gopheracademy.com/advent-2016/peachpy/
+	https://sitano.github.io/2016/04/28/golang-private/
+	https://syslog.ravelin.com/anatomy-of-a-function-call-in-go-f6fc81b80ecc
+
