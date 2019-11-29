@@ -70,6 +70,7 @@
 	SP: 指向当前栈帧的局部变量的开始位置。使用形如symbol+offset(SP)方式，引用函数局部变量。offset的取值范围：[-framesize,0)
 
 	go tool objdump/go tool compile -S 输出的代码是没有伪SP和FP寄存器的。在汇编结果中，只有真实的SP寄存器。
+	其实伪寄存器FP和SP相当于plan9伪汇编中的一个助记符，他们是根据当前函数栈空间计算出来的一个相对于物理寄存器SP的一个偏移量坐标。当在一个函数中，如果用户手动修改了物理寄存器SP的偏移，则伪寄存器FP和SP也随之发生对应的偏移。
 
 #### 变量声明
 	在汇编所谓的变量，一般是存储在 .rodata或者 .data段中的只读值。对应到应用层的话，就是已初始化的全局的const，var，statics常量/变量。
@@ -149,6 +150,10 @@
 ##### 地址运算
 	地址运算也是用LEA 指令，英文愿意为 Load Effective Addresss，amd64平台地址都是8个字节，所有直接就用LEAQ就好。
 	例子： LEAQ (BX)(AX*1), CX
+
+	MOVQ命令，在寄存器加偏移的情况下MOVQ会对地址进行解引用。
+	MOVQ (AX), BX   // => BX = *AX 将AX指向的内存区域8byte赋值给BX
+	MOVQ AX, BX     // => BX = AX 将AX中存储的内容赋值给BX，注意区别
 
 ##### 示例
 	math.go
