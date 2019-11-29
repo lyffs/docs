@@ -39,8 +39,6 @@
 	CALL 栈空间会发生响应的变化，传递参数时，我们需要输入参数，返回值按之前将栈的布局安排在调用者的栈顶，然后在调用CALL函数来调用其函数，
 	调用CALL命令后，SP寄存器会下移一个WORD，然后进入新函数的栈空间执行。
 	
-
-
 #### 指令集
 	参考源代码arch 部分：https://github.com/golang/arch/blob/master/x86/x86.csv
 
@@ -96,7 +94,29 @@
 	 		|     |                | |
 	 		包名  函数名           栈帧大小 参数及返回值大小
 
-	 当有NOSPLIT表示时，可以不写输入参数，返回值占用的大小（这时会强行插入CALLER BP）		
+	 当有NOSPLIT表示时，可以不写输入参数，返回值占用的大小（这时会强行插入CALLER BP）
+
+##### 调用其他函数
+	在汇编中调用其他函数通常是：
+	JMP： 直接跳转时，与函数栈空间相关的几个寄存器SP/FP不会发生变化，可以理解为被调用者复用调用者的栈空间。此时，参数传递采用寄存器传递，调用者和
+		被调用者协商好使用那些寄存器传递参数，调用者将参数写入这些寄存器，然后跳转到被调用者，被调用者从相关寄存器读出相关参数。
+
+	CALL: 通过CALL命令来调用其他函数时，占空间会发生响应变化（寄存器SP/FP随之发生变化）。传递参数时，我们需要输入参数、返回值按之前将的栈布局安排在调用者的栈顶
+	（低地址），然后在调用CALL命令来调用其他函数，调用CALL命令后，SP寄存区会下移一个WORD，然后进入新函数的栈空间运行。return addr（函数返回地址）不需要用户维护，CALL
+	指令会自动维护。
+
+##### 回调函数/闭包
+	当函数参数中包含回调函数时，回调函数的指针通过一种简介方式传入，之所以采用这种设计也是为例照顾闭包调用的实现。在Golang的ABI中，关于回调函数、闭包的
+	上下文由调用者来维护，被调用者按照规定的格式来使用。	
+
+	1.调用者需要申请一段临时内存区域来存储函数指针，当传递参数是闭包时，该临时内存区域开可以进行扩充，用于存储闭包中捕获的变量，通常编译器将该内存区域定义成结构体：
+	struct { f uintptr; a *int}的结构。该临时内存区域可以分配在栈上，也可以分配在堆上，也可以分配到寄存器上，到底分配到那里，需要编译器根据逃逸分析的结果来决定。
+	2.将临时内存区域的地址存储于对应 被调用函数 入参的对应位置上；其他参数按照上面常规方法放置。
+	3.使用CALL执行调用 被调用函数（callee-call）
+	4.在被调用函数（callee-call） 中从对应参数位置中去除临时内存区域的指针存储在指定寄存器DX(仅限于AMD64平台)
+	5.然后从DX指向的临时内存区域的首部取出函数指针，存储于AX
+	6.然后在执行CALL AX指令来调用传入的回调函数。
+	7.当回调函数是闭包时，需要使用捕获的变量时，直接通过寄存器DX加对应偏移量来获取。		 		
 
 #### 栈结构
 
@@ -178,6 +198,8 @@
 
 ##### 数据结构
 
+##### 
+
 ###### 数据类型
 	标准库的数值类型：
 	1.int/int8/int16/int32/int64
@@ -191,12 +213,13 @@
 	1.struct
 	struct在汇编层面实际上就是一段连续内存，在作为参数传给函数时，会将其展开在caller的栈上传给对应的callee:
 
-
 ##### 命令
+	汇编命令：go tool compile -l -N -S
+	反汇编命令：go tool objdump -S
 	
 
 ## 参考资料
-
+	https://www.altoros.com/blog/golang-internals-part-1-main-concepts-and-project-structure/
 	https://github.com/yangyuqian/technical-articles/blob/master/asm/golang-plan9-assembly-cn.md
 	https://xargin.com/plan9-assembly/
 	https://www.cnblogs.com/landv/p/11589074.html
@@ -208,4 +231,5 @@
 	https://blog.gopheracademy.com/advent-2016/peachpy/
 	https://sitano.github.io/2016/04/28/golang-private/
 	https://syslog.ravelin.com/anatomy-of-a-function-call-in-go-f6fc81b80ecc
+
 
