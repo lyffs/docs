@@ -116,7 +116,28 @@
 	4.在被调用函数（callee-call） 中从对应参数位置中去除临时内存区域的指针存储在指定寄存器DX(仅限于AMD64平台)
 	5.然后从DX指向的临时内存区域的首部取出函数指针，存储于AX
 	6.然后在执行CALL AX指令来调用传入的回调函数。
-	7.当回调函数是闭包时，需要使用捕获的变量时，直接通过寄存器DX加对应偏移量来获取。		 		
+	7.当回调函数是闭包时，需要使用捕获的变量时，直接通过寄存器DX加对应偏移量来获取。
+
+##### 直接调用C函数（FFI）
+	在GO中调用C函数存在巨大的额外开销。可以考虑绕开CGO机制，直接调用C函数，就要遵循C的ABI	
+	amd64 c ABI
+	在调用C函数时，主流有2种ABI。
+	Windows x64 c and c++ ABI 主要适用于各windows平台
+	System V ABI 主要适用于Solaris, Linux, FreeBSD, MacOS等
+
+	在ABI规定中，参数传递的协议:
+	当参数都是整数且少于7个时，参数从左到右放入寄存器：rdi, rsi, rdx, rcx, r8, r9
+	当参数都是整数而多于或者等于7个时，前6个还是与前面一样，但后面的依次从右向左放入栈中，即和32位汇编一样。
+
+	由于该issue(https://github.com/golang/go/issues/20427#issuecomment-343255844)的存在，通常goroutine的栈空间很小，很可能产生栈溢出的错误。解决的方法有：
+		1.直接切换到g0栈，g0栈是系统原生线程的栈，通常比较大而且与C兼容性更好，切换g0栈方法可以参考（https://github.com/petermattis/fastcgo）的实现，但是有强烈的版本
+		依赖。
+		2.调用函数自身声明一个很大的栈空间，迫使goroutine栈扩张。具体参考方法rustgo(https://blog.filippo.io/rustgo/)，该方法不能确定每一个C函数具体的栈空间需求，只能
+		根据猜测分配一个足够大的，同时也会造成比较大的浪费。
+		3.使用runtime·systemstack切换到g0栈，同时摆脱了版本依赖。具体方法可以参考numa(https://github.com/lrita/numa/blob/2073a6660808a7b8d0fec85013b0301327439d97/numa_linux_amd64.s#L49-L59)
+
+##### 优化
+			
 
 #### 栈结构
 
@@ -198,8 +219,6 @@
 
 ##### 数据结构
 
-##### 
-
 ###### 数据类型
 	标准库的数值类型：
 	1.int/int8/int16/int32/int64
@@ -231,5 +250,6 @@
 	https://blog.gopheracademy.com/advent-2016/peachpy/
 	https://sitano.github.io/2016/04/28/golang-private/
 	https://syslog.ravelin.com/anatomy-of-a-function-call-in-go-f6fc81b80ecc
+
 
 
