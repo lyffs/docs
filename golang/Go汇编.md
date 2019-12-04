@@ -255,6 +255,9 @@
 	https://blog.gopheracademy.com/advent-2016/peachpy/
 	https://sitano.github.io/2016/04/28/golang-private/
 	https://syslog.ravelin.com/anatomy-of-a-function-call-in-go-f6fc81b80ecc
-
+	https://github.com/golang/go/blob/master/src/cmd/compile/internal/gc/lex.go#L52
+	https://golang.org/cmd/compile/#hdr-Compiler_Directiveshttps://golang.org/cmd/compile/#hdr-Compiler_Directives
+	https://segmentfault.com/a/1190000016354799#articleHeader2
+	https://segmentfault.com/a/1190000016743220
 
 
