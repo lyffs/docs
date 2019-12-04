@@ -118,6 +118,57 @@
 	5.然后从DX指向的临时内存区域的首部取出函数指针，存储于AX
 	6.然后在执行CALL AX指令来调用传入的回调函数。
 	7.当回调函数是闭包时，需要使用捕获的变量时，直接通过寄存器DX加对应偏移量来获取。
+	8.示例:
+
+	  Go
+          `
+	  package main
+	  import "fmt"
+	  func fun1()
+	  func fcall(uintptr, int)
+	  func Test()
+	  func Goprint(n int) {
+        	fmt.Println("n:", n)
+	  }
+	  func main() {
+       		 Test()
+	  }
+
+	  `
+	  Asm
+	  `
+	  #include "textflag.h"
+
+	  TEXT ·fun1(SB), NOSPLIT|NEEDCTXT, $16-0
+		MOVQ 8(DX), AX
+		INCQ (AX)
+		MOVQ (AX), BX
+		MOVQ BX, arg-16(SP)
+		CALL ·Goprint(SB)
+		RET
+
+	  TEXT ·fcall(SB), NOSPLIT, $16-16
+		MOVQ fn+8(FP), BX
+		MOVQ BX, arg-16(SP)
+		CALL ·Goprint(SB)
+		MOVQ fn+0(FP), DX
+		MOVQ (DX), AX
+		CALL AX
+		RET
+
+	  TEXT ·Test(SB), NOSPLIT, $48-0
+		MOVQ $0, n-32(SP)
+		LEAQ n-32(SP), AX
+		MOVQ AX, n_adr-8(SP)
+		LEAQ ·fun1(SB), AX
+		MOVQ AX, fn-16(SP)
+		LEAQ fn-16(SP), AX
+		MOVQ $1, n1-40(SP)
+		MOVQ AX, fn-48(SP)
+		CALL ·fcall(SB)
+		RET
+
+	  `
 
 ##### 直接调用C函数（FFI）
 	在GO中调用C函数存在巨大的额外开销。可以考虑绕开CGO机制，直接调用C函数，就要遵循C的ABI	
@@ -138,7 +189,7 @@
 		3.使用runtime·systemstack切换到g0栈，同时摆脱了版本依赖。具体方法可以参考numa(https://github.com/lrita/numa/blob/2073a6660808a7b8d0fec85013b0301327439d97/numa_linux_amd64.s#L49-L59)
 
 ##### 优化
-
+			
 
 #### 栈结构
 
@@ -232,7 +283,7 @@
 	4.byte/rune
 	5.uintpr
 
-	这些类型在汇编中就是一段储存着数据的连续内存，只是	内存长度不一样，操作的时候看好数据长度就行。
+	这些类型在汇编中就是一段储存着数据的连续内存，只是内存长度不一样，操作的时候看好数据长度就行。
 
 	1.struct
 	struct在汇编层面实际上就是一段连续内存，在作为参数传给函数时，会将其展开在caller的栈上传给对应的callee:
