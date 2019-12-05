@@ -44,3 +44,36 @@
 	MOVQ BX, 0x20(SP)
 	CALL runtime.growslice(SB)
 	`	
+
+###
+	CALL runtime.growslice(SB)
+	`
+	func growslice(et *_type, old slice, cap int) slice {
+		//前面是否允许竞争检查
+		newcap := old.cap
+		doublecap := newcap + newcap
+		if cap > doublecap {
+			newcap = cap 
+		} else {
+			if old.len < 1024 {
+				newcap = doublecap //2倍原来的cap
+			} else {
+				// Check 0 < newcap to detect overflow
+				// and prevent an infinite loop.
+				for 0 < newcap && newcap < cap {
+					newcap += newcap / 4 // 4/1倍增长
+				}
+				// Set newcap to the requested cap when
+				// the newcap calculation overflowed.
+				if newcap <= 0 {
+					newcap = cap
+				}
+			}
+		}
+
+		capmem = roundupsize(uintptr(newcap))
+		p = mallocgc(capmem, nil, false) //需要切换都g0协程上申请空间
+
+	}
+	`
+		
