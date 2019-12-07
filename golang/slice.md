@@ -71,9 +71,34 @@
 			}
 		}
 
-		capmem = roundupsize(uintptr(newcap))
+		capmem = roundupsize(uintptr(newcap)) //根据类型大小返回内存块大小
+		...
 		p = mallocgc(capmem, nil, false) //需要切换都g0协程上申请空间
+			...
+			mp := acquirem() //获取当前工作线程
+			...
+			c := gomcache() //返回当前个工作线程的cache(缓存)
+			...
+			if size <= maxSmallSize(32768) {
+				if noscan && size < maxTinySize(16) {
+					// Tiny allocator, be noscan (don't have pointers)
+					...
+					if off+size <= maxTinySize && c.tiny != 0 {
+						x = unsafe.Pointer(c.tiny + off)
+						releasem(mp)
+						...
+						return x
+					}
+					// Allocate a new maxTinySize block. //申请一个新的maxTinySize（16bytes）的内存块
+						
+				} else {
+					
+				}
+			else {
+
+			}	
 
 	}
+
 	`
 		
