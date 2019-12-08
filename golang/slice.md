@@ -45,7 +45,7 @@
 	CALL runtime.growslice(SB)
 	`	
 
-###
+### Golang代码
 	CALL runtime.growslice(SB)
 	`
 	func growslice(et *_type, old slice, cap int) slice {
@@ -92,13 +92,89 @@
 					// Allocate a new maxTinySize block. //申请一个新的maxTinySize（16bytes）的内存块
 						
 				} else {
-					
+					...
+					v := nextFreeFast(span)
+					...
+					if v == 0 {
+						v, span, shouldhelpgc = c.nextFree(spc)
+					}
+					...
+					if needzero && span.needzero != 0 {
+						memclrNoHeapPointers(unsafe.Pointer(v), size) //是由汇编实现
+					}
 				}
 			else {
-
+				systemstack(func() {
+					s = largeAlloc(size, needzero, noscan)
+				})	//systemstack 汇编实现，切换到
 			}	
 
 	}
 
 	`
-		
+
+### 汇编代码
+	TEXT runtime·systemstack(SB), NOSPLIT, $0-8	//无函数栈，1个参数无返回值
+		MOVQ    fn+0(FP), DI    // DI = fn，将第一个参数放在DI寄存器
+		get_tls(CX) // get_tls 是宏，获取当前协程
+		MOVQ    g(CX), AX       // AX = g，将g存在AX寄存器
+		MOVQ    g_m(AX), BX     // BX = m，将工作线程存在BX寄存器
+		CMPQ    AX, m_gsignal(BX) //当前工作线程的gsignal是当前协程
+		JEQ     noswitch //相等无需切换
+
+		MOVQ    m_g0(BX), DX    // DX = g0，获取g0的协程
+        CMPQ    AX, DX  //相等无需切换
+        JEQ     noswitch
+
+        // switch stacks
+        // save our state in g->sched. Pretend to
+        // be systemstack_switch if the G stack is scanned.
+        MOVQ    $runtime·systemstack_switch(SB), SI
+        MOVQ    SI, (g_sched+gobuf_pc)(AX)
+        MOVQ    SP, (g_sched+gobuf_sp)(AX)
+        MOVQ    AX, (g_sched+gobuf_g)(AX)
+        MOVQ    BP, (g_sched+gobuf_bp)(AX)
+
+         // switch to g0
+        MOVQ    DX, g(CX)
+        MOVQ    (g_sched+gobuf_sp)(DX), BX
+        // make it look like mstart called systemstack on g0, to stop traceback
+        SUBQ    $8, BX
+        MOVQ    $runtime·mstart(SB), DX
+        MOVQ    DX, 0(BX)
+        MOVQ    BX, SP
+
+        // call target function
+        MOVQ    DI, DX
+        MOVQ    0(DI), DI
+        CALL    DI   
+
+        // switch back to g
+        get_tls(CX)
+        MOVQ    g(CX), AX
+        MOVQ    g_m(AX), BX
+        MOVQ    m_curg(BX), AX
+        MOVQ    AX, g(CX)
+        MOVQ    (g_sched+gobuf_sp)(AX), SP
+        MOVQ    $0, (g_sched+gobuf_sp)(AX)
+        RET
+
+        noswitch:
+        // already on m stack; tail call the function
+        // Using a tail call here cleans up tracebacks since we won't stop
+        // at an intermediate systemstack.
+        MOVQ    DI, DX
+        MOVQ    0(DI), DI
+        JMP     DI
+
+bad:
+        // Bad: g is not gsignal, not g0, not curg. What is it?
+        MOVQ    $runtime·badsystemstack(SB), AX
+        CALL    AX
+        INT     $3
+
+
+
+	
+
+
