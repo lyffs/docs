@@ -72,7 +72,17 @@
 		}
 
 		capmem = roundupsize(uintptr(newcap))
+		...
 		p = mallocgc(capmem, nil, false) //需要切换都g0协程上申请空间
+			...
+			gcBlackenEnabled //是否开启gcBlackenEnabled
+			gcBlackenEnabled != 0 {
+				...
+				assistG.gcAssistBytes -= int64(size) //gcAssistBytes 是g'gc 用于申请字节的(辅助信贷)
+				if assistG.gcAssistBytes < 0 {
+		 			gcAssistAlloc(assistG)
+				}
+			}
 
 	}
 	`
