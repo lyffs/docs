@@ -106,10 +106,9 @@
 			else {
 				systemstack(func() {
 					s = largeAlloc(size, needzero, noscan)
-				})	//systemstack 汇编实现，切换到
+				})	//systemstack 由汇编实现，切换到
 			}	
-
-	}
+		}
 
 	func mstart() {
 
