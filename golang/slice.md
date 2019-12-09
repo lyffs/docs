@@ -111,6 +111,10 @@
 
 	}
 
+	func mstart() {
+
+	}
+
 	`
 
 ### 汇编代码
@@ -130,7 +134,7 @@
         // save our state in g->sched. Pretend to
         // be systemstack_switch if the G stack is scanned.
         MOVQ    $runtime·systemstack_switch(SB), SI
-        MOVQ    SI, (g_sched+gobuf_pc)(AX)
+        MOVQ    SI, (g_sched+gobuf_pc)(AX) //暂存状态
         MOVQ    SP, (g_sched+gobuf_sp)(AX)
         MOVQ    AX, (g_sched+gobuf_g)(AX)
         MOVQ    BP, (g_sched+gobuf_bp)(AX)
@@ -176,5 +180,5 @@ bad:
 
 
 	
-
-
+## 参考资料
+https://github.com/JerryZhou/golang-doc

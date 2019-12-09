@@ -311,4 +311,5 @@
 	https://segmentfault.com/a/1190000016354799#articleHeader2
 	https://segmentfault.com/a/1190000016743220
 	https://github.com/sxs2473/go-performane-tuning
+	https://github.com/JerryZhou/golang-doc/blob/master/Golang-Internals/Part-6.Bootstrapping.and.Memory.Allocator.Initialization.md
 	
