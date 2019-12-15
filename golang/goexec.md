@@ -79,12 +79,31 @@
 		tracebackinit()
 		moduledateverify()
 		stackinit() //初始化stack pool
-		mallocinit() //内存管理初始化
+		mallocinit() //内存管理初始化，主要是初始花mheap_，初始化arena
+		mcommoninit(_g_.m) //m公共初始化
+		cpuinit() //cpu初始化
+		alginit() //算法初始化
+		modulesinit() //
+		typelinksinit()
+		itabsinit()
+
+		msigsave(_g_.m)
+		
+		goargs()
+		goenvs()
+		parsedebuggvars()
+		gcinit()
+
+
 
 	6.runtime.mallocinit()
 		mheap_.init() //堆初始化
 		_g_ := getg()
 		_g_.m.mcache = allocmacache()
+
+	7.runtime.mcommoninit()
+		mpreinit(mp) //m.gsignal初始化，其中新建g，同时g的stack需要申请。从系统内存申请，或者从stackpool申请，或者从heap（mheap_）申请。
+		
 
 		
 		
