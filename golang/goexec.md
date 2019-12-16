@@ -91,9 +91,8 @@
 		
 		goargs()
 		goenvs()
-		parsedebuggvars()
-		gcinit()
-
+		parsedebuggvars() //解析debug变量
+		gcinit() //gc初始化，设置gc百分比
 
 
 	6.runtime.mallocinit()
