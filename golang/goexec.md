@@ -94,6 +94,7 @@
 		parsedebuggvars()
 		gcinit()
 
+		procresize(procs)
 
 
 	6.runtime.mallocinit()
@@ -105,7 +106,16 @@
 		mpreinit(mp) //m.gsignal初始化，其中新建g，同时g的stack需要申请。从系统内存申请，或者从stackpool申请，或者从heap（mheap_）申请。
 		
 
-		
+	8.runtime.procresize()
+		// initialize new P's
+		for i := old; i < nprocs; i++ {
+			pp := allp[i]
+			if pp == nil {
+				pp = new(p)
+			}
+			pp.init(i)
+			atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
+		}			
 		
 		
 
