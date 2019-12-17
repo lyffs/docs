@@ -143,3 +143,25 @@
 		<-c
 		<-c
 		memstats.enablegc = true
+
+	11.func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int)
+		// 将当前goroutine设置为waiting状态，并且调用unlockf函数
+		// 如果unlockf返回false，goroutine恢复
+		// reason解释goroutine parked的原因
+		// 它显示在堆栈跟踪和堆转储中
+		
+		mp := acquirem() //获取当前goroutine关联的m
+		gp := mp.curg //获取m中正在运行的goroutine
+		status := readgstatus(gp) //获取gp(goroutine)的状态
+		mp.waitlock = lock
+		mp.waitunlock = unlockf
+		
+		gp.waitreason = reason
+
+		mp.waittraceev = traceEv
+		mp.waittraceskip = traceskip
+		
+		releasem(mp)	
+		mcall(park_m)
+
+
