@@ -113,3 +113,33 @@
 			pp.init(i) //设置pp的状态为:_Pgcstop,pp.mcache = getg().m.mcache //或者pp.mcache = allocmcache()
 			atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
 		}
+
+	9.runtime.main()
+		lockOSThread()		
+		if g.m != &m0 {
+			throw("runtime.main not on m0")
+		} //当前工作线程必须是m0	
+
+		doInit(&runtime_inittask) //必须要在defer之前
+
+		gcenable() //开启gc，启动bgsweep() bgscavenge协程
+
+		doInit(&main_inittask)
+		unlockOSThread()
+
+		fn := main_main // make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime
+		fn()
+
+		if atomic.Load(&panicking) != 0 {
+			gopark(nil, nil, waitReasonPanicWait, traceEvGoStop, 1)
+		}
+
+		exit(0)
+
+	10.runtime.gcenable() 
+		c := make(chan int, 2)
+		go bgsweep(c)
+		go bgscavenge(c)
+		<-c
+		<-c
+		memstats.enablegc = true
