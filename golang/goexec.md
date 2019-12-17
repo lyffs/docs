@@ -79,7 +79,7 @@
 		tracebackinit()
 		moduledateverify()
 		stackinit() //初始化stack pool
-		mallocinit() //内存管理初始化，主要是初始花mheap_，初始化arena
+		mallocinit() //内存管理初始化，主要是初始花mheap_，初始化arena。定义不同内存状态的申请
 		mcommoninit(_g_.m) //m公共初始化
 		cpuinit() //cpu初始化
 		alginit() //算法初始化
@@ -91,11 +91,8 @@
 		
 		goargs()
 		goenvs()
-		parsedebuggvars()
-		gcinit()
-
-		procresize(procs)
-
+		parsedebuggvars() //解析debug变量
+		procresize(procs) //write barrier needs a P	
 
 	6.runtime.mallocinit()
 		mheap_.init() //堆初始化
@@ -105,23 +102,14 @@
 	7.runtime.mcommoninit()
 		mpreinit(mp) //m.gsignal初始化，其中新建g，同时g的stack需要申请。从系统内存申请，或者从stackpool申请，或者从heap（mheap_）申请。
 		
-
-	8.runtime.procresize()
+	8.runtime.procresize(nproc int32) *p
 		// initialize new P's
 		for i := old; i < nprocs; i++ {
 			pp := allp[i]
 			if pp == nil {
 				pp = new(p)
 			}
-			pp.init(i)
+
+			pp.init(i) //设置pp的状态为:_Pgcstop,pp.mcache = getg().m.mcache //或者pp.mcache = allocmcache()
 			atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
-		}			
-		
-		
-
-			
-	
-		
-
-
-	
+		}
