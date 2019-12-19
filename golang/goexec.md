@@ -163,5 +163,8 @@
 		
 		releasem(mp)	
 		mcall(park_m)
-
-
+		// mcall从g切换到g0栈调用park_m
+		// 其中g是发起调用的goroutine
+		// mcall将g当前的PC/SP保存在g-sched以便以后恢复
+		// 
+		
