@@ -193,8 +193,48 @@
 			newproc1(fn, (*uint8)(argp), siz, gp, pc)
 		}) 
 
-	13.runtime.park_m
 		
+	13.runtime.park_m
+		// 在g0中继续暂停
+		// 
+
+		_g_ := getg()
+		
+		casgstatus(gp, _Grunning, _Gwaiting)
+
+	14.runtime.casgstatus(gp *g, oldval, newval uint32)
+		// 如果设置为Gscanstatus或者从Gscanstatus状态变更，这样抛出异常。取而代之的是castogscanstatus 和casfrom_Gscanstatus
+                // 如果g->atomicstatus处于Gscan状态，casgstatus将会一直循环，直到设置状态为Gscan的routine完成。
+		
+		if (oldval&_Gscan != 0) || (newval&_Gscan != 0) || oldval == newval {
+			//throw() //在系统栈
+		}	
+
+		if oldval == _Grunning && gp.gcscanvalid {
+			//throw() //在系统栈
+		}
+
+		const yieldDelay = 5 * 1000
+
+		// 如果gp->atomicstatus处于扫描状态，循环会给GC时间完成并且将状态修改为oldval
+		for i := 0; !atomic.Cas(&gp.atomicstatus, oldval, newval); i++ {
+			if i == 0 {
+				nextYield = nanotime() + yieldDelay
+			}
+			if nanotime() < nextYield {
+				for x := 0; x < 10 && gp.atomicstatus != oldval; x++ {
+					procyield(1)
+				}
+			} else {
+				osyield()
+				nextYield = nanotime() + yieldDelay/2
+			}
+		}	
+		
+		if newval == _Grunning {
+			gp.gcscanvalid = false
+		}
+
 
 ### 参考
 	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
