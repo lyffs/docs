@@ -161,10 +161,30 @@
 		mp.waittraceev = traceEv
 		mp.waittraceskip = traceskip
 		
-		releasem(mp)	
-		mcall(park_m)
+		releasem(mp)
+
 		// mcall从g切换到g0栈调用park_m
 		// 其中g是发起调用的goroutine
-		// mcall将g当前的PC/SP保存在g-sched以便以后恢复
-		// 
+		// mcall将g当前的PC/SP保存在g-sched以便以后恢复	
+		mcall(park_m)
 		
+	12.runtime.newproc(siz int32, fn *funcval) 
+		//创建一个新的协程用于运行fn
+		//将fn放在g的队列中等待运行
+		//编译器将go声明转换成对它的调用
+		//协程stack不能split因为它猜测函数参数在fn后面有效排列，如果stack split，他们不会复制
+
+		argp := add(unsafe.Pointer(&fn), sys.PtrSize) //获取参数地址
+		gp := getg() //获取当前goroutine
+		pc := getcallerpc()
+
+		//systemstack: 
+		systemstack(func() {
+			newproc1(fn, (*uint8)(argp), siz, gp, pc)
+		}) 
+
+	
+
+### 参考
+	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
+
