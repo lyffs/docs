@@ -163,10 +163,20 @@
 		
 		releasem(mp)
 
-		// mcall从g切换到g0栈调用park_m
-		// 其中g是发起调用的goroutine
-		// mcall将g当前的PC/SP保存在g-sched以便以后恢复	
+		// func mcall(fn func(*g))
+		// mcall从g切换到g0栈调用fn(g)，其中g是发起调用的goroutine。
+		// mcall将g当前的PC/SP保存在g-sched以便以后恢复。
+		// 由fn决定稍后的执行，通过记录g到数据结构中，从而后面可以调用ready(g)
+		// 当g被重新调度时，mcall随后返回原始goroutine g。
+		// fn绝对不能返回；通常通过调用schedule结束，让m来执行其他goroutine。
+		// 
+		// mcall只能在g stack(非g0或者gsignal)中被调用
+		//
+		// 函数必须是 go:noescape(不能逃逸)，如果fn是栈分配的闭包，
+		// fn将g放在运行队列中，g在fn返回之前执行。闭包在执行过程中无效。
+
 		mcall(park_m)
+
 		
 	12.runtime.newproc(siz int32, fn *funcval) 
 		//创建一个新的协程用于运行fn
@@ -183,7 +193,8 @@
 			newproc1(fn, (*uint8)(argp), siz, gp, pc)
 		}) 
 
-	
+	13.runtime.park_m
+		
 
 ### 参考
 	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
