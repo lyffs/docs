@@ -202,8 +202,20 @@
 		//将gp状态从_Grunning变更为_Gwaiting
 		casgstatus(gp, _Grunning, _Gwaiting)
 
-		//
+		//dropg 解除m与curg的联系
 		dropg()
+
+		if fn := _g_.m.waitunlockf; fn != nil {
+			ok := fn(gp, _g_.m.waitlock)
+			_g_.m.waitunlockf = nil
+			_g_.m.waitlock = nil
+			if !ok {
+				casgstatus(gp, _Gwaiting, _Grunnable)
+				execute(gp, true)
+			}
+		}
+
+		schedule()
 
 	14.runtime.casgstatus(gp *g, oldval, newval uint32)
 		// 如果设置为Gscanstatus或者从Gscanstatus状态变更，这样抛出异常。取而代之的是castogscanstatus 和casfrom_Gscanstatus
@@ -247,8 +259,77 @@
 
 		_g_ := getg()
 
-		 setMNoWB(&_g_.m.curg.m, nil) //no写屏障设置m当前gouroutine的m为空
-		 setGNoWB(&_g_.m.curg, nil) //no写屏障设置m当前goroutine为空
+		 setMNoWB(&_g_.m.curg.m, nil) //非写屏障设置m当前gouroutine的m为空
+		 setGNoWB(&_g_.m.curg, nil) //非写屏障设置m当前goroutine为空
+
+	16.runtime.execute(gp *g, inheritTime bool)
+		// 调度gp在当前M上运行。
+		// 如果inheritTime是true，gp在当前时间片中继承保留的时间。否则它开始一个新的
+		// 时间片。
+		// 从不返回
+
+		// 允许写屏障因为在几个地方获得P之后立即调用。
+		_g_ := getg()
+		// 将gp的状态从_Grunnable变更为_Grunning
+		casgstatus(gp, _Grunnable, _Grunning)
+		gp.waitsince = 0
+		gp.preemt = false
+		gp.stackguard0 = gp.stack.lo + _StackGuard
+		if !inheritTime {
+			_g_.m.p.ptr().schedtick++
+		}
+
+		_g_.m.curg = gp //将m的正在运行的goroutine变更为gp
+		gp.m = _g_.m //将gp的m变更为_g_.m
+
+		// 检查profiler是否需要打开或者关闭
+		hz := sched.profilehz
+		if _g_.m.profilehz != hz {
+			setThreadCPUProfiler(hz)
+		}
+
+		gogo(&gp.sched)
+
+	17.runtime.schedule()
+		// 调用执行一轮是：寻找一个可执行的goroutine并且执行。
+		_g_ := getg()
+
+		// guintptr, muintptr, and puintptr 用来绕过写屏障
+		// 当 当前P被释放时，避免写屏障特别重要。因为GC认为整个
+		// 程序已经停止，一个未预期的写屏障不会与GC同步，这可能导致
+		// 对象已经标记但没有入队的执行到一半的写屏障。如果在入队之前
+		// GC跳过该对象并且完成，这将导致不正确的释放该对象。
+
+		// 我们尝试当没有拥有一个正在运行的P时只使用特殊的赋值函数，但是
+		// 一些特殊内存单词的更新可以穿过写屏障，而有些没有。这打破写屏障阴影检查
+		// 的模式，同时令人害怕的是：拥有一个完全被GC忽视的单词要比拥有一个只忽略少量
+		// 更新的单词要好。
+
+		// 在allgs和allp 列表中 或者来自栈变量（在他们到达那些列表之前的变量申请）的Gs
+		// 和Ps通过正确的指针访问总是有效的。
+
+		// 不论来自allm还是来自freem，Ms通过正确的指针访问总是有效。不像 Gs 和 Ps，我们
+		// 释放 Ms，所有没有任何东西拥有越过安全点的muintptr非常重要。
+
+		// A guintptr持有一个goroutine的指针，但是作为绕过写屏障的uintptr类型。它用在
+		// Gobuf goroutine状态和不使用P操作的调度列表中。
+
+		// Gobuf.g goroutine指针 总是被汇编代码更新。在一小部分地方中，
+		// 它是由go代码更新 -func save-，它必须被看做一个uintptr为了避免在错误的时间
+		// 产生写屏障。为了取代理解在非汇编操作中产生写屏障，我们改变uintptr的类型，所以
+		// 它根本不需要写屏障
+
+		// goroutine结构被发布在allg列表中并且从不释放。它将阻止goroutine结构被回收。
+		// Gobuf.g 从来不是goroutine的唯一引用。在allg上发布的goroutine最新生成。
+		// Goroutine的指针同时会保留在GC不可见的地方，比如：TLS，所以我不能看到它们
+		// 移动过。如果我们确实想开始移动数据到GC，我们需要从恰当的arena中申请
+		// goroutine结构。用guintptr指针不让错误变得更糟糕。
+		、
+
+		if _g_.m.lockedg != 0 {
+			stoplockedm()
+			execute(_g_.m.lockedg.ptr(), false)
+		}
 
 
 ### 参考
