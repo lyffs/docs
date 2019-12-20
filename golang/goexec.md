@@ -196,15 +196,18 @@
 		
 	13.runtime.park_m
 		// 在g0中继续暂停
-		// 
-
+		
 		_g_ := getg()
 		
+		//将gp状态从_Grunning变更为_Gwaiting
 		casgstatus(gp, _Grunning, _Gwaiting)
+
+		//
+		dropg()
 
 	14.runtime.casgstatus(gp *g, oldval, newval uint32)
 		// 如果设置为Gscanstatus或者从Gscanstatus状态变更，这样抛出异常。取而代之的是castogscanstatus 和casfrom_Gscanstatus
-                // 如果g->atomicstatus处于Gscan状态，casgstatus将会一直循环，直到设置状态为Gscan的routine完成。
+        // 如果g->atomicstatus处于Gscan状态，casgstatus将会一直循环，直到设置状态为Gscan的routine完成。
 		
 		if (oldval&_Gscan != 0) || (newval&_Gscan != 0) || oldval == newval {
 			//throw() //在系统栈
@@ -234,6 +237,18 @@
 		if newval == _Grunning {
 			gp.gcscanvalid = false
 		}
+
+	15.runtime.dropg()
+		// dropg将移除m和当前routine m->curg的关联
+		// 通常调用者变更gp的Grunning状态然后立刻调用dropg完成该项工作
+		// 调用者还负责安排gp在恰当的时间状态变更为ready重新启动。
+		// 在调用dropg和稍后安排gp状态变更为ready，调用者可以做其他工作
+		// 但最终应该调用schedule来重新启动这个m上面的goroutine调度。
+
+		_g_ := getg()
+
+		 setMNoWB(&_g_.m.curg.m, nil) //no写屏障设置m当前gouroutine的m为空
+		 setGNoWB(&_g_.m.curg, nil) //no写屏障设置m当前goroutine为空
 
 
 ### 参考
