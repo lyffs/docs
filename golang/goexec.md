@@ -324,12 +324,75 @@
 		// Goroutine的指针同时会保留在GC不可见的地方，比如：TLS，所以我不能看到它们
 		// 移动过。如果我们确实想开始移动数据到GC，我们需要从恰当的arena中申请
 		// goroutine结构。用guintptr指针不让错误变得更糟糕。
-		、
 
 		if _g_.m.lockedg != 0 {
 			stoplockedm()
 			execute(_g_.m.lockedg.ptr(), false)
 		}
+
+	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
+		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
+		// 新的g被放到等待运行的g队列中。
+		_g_ := getg() //获取当前goroutine
+		acquirem() //
+
+		_p_ := _g_.m.p.ptr() //返回PP指针
+		newg := gfget(_p_)
+
+	31 runtime.gfget(_p_ *p) *g
+		// 从g空闲列表中获取
+		// 如果本地列表是空，则从全局列表中获取一批
+
+		retry:
+		if _p_.gFree.empty() && (!sched.gFree.stack.empty() || !sched.gFree.noStack.empty()) {
+			lock(&sched.gFree.lock)
+			//将一批空闲的Gs移到P
+			if _p_.gFree.n < 32 {
+				//优先获取有栈的Gs，同时如果 sched.gFree.stack.head = gp.schedlink
+				gp := sched.gFree.stack.pop()
+				if gp == nil {
+					//
+					gp = sched.gFree.noStack.pop()	
+					if gp == nil {
+						break
+					}
+				}
+				sched.gFree.n--
+				_p_.gFree.push(gp) //以入栈的方式将goroutine 连接起来
+				_p_.gFree.n++ 
+			}
+			unlock(&sched.gFree.lock)
+			goto retry
+		}
+
+		gp := _p_.gFree.pop() //弹出最后进栈的goroutine
+		if gp == nil {
+			return nil
+		}
+
+		_p_.gFree.n--
+		if gp.stack.lo == 0 {
+			// stack 已经在 gfput 中回收，重新申请一个新的
+			systemstack(func() {
+				gp.stack = stackalloc(_fixedStack)	
+			})
+			gp.stackguard0 = gp.stack.lo + _StackGurad	
+		} else {
+			if raceenabled {
+				racemalloc(unsafe.Pointer(gp.stack.lo), gp.stack.hi-gp.stack.lo)
+			}
+			if msanenabled {
+				msanmalloc(unsafe.Pointer(gp.stack.lo), gp.stack.hi-gp.stack.lo)
+			}	
+		}
+
+		return gp
+
+	32 runtime.stackalloc(n uint32) stack
+		// 申请b个自己的栈
+		// stackalloc必须运行在系统栈上面因为它用每个P的资源，并且不能缩放堆栈。
+		// Stackalloc必须运行在scheduler栈，因为我们从不尝试在stackalloc运行的代码期间
+		// 增加堆栈 
 
 
 ### 参考
