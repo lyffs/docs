@@ -406,7 +406,7 @@
 		}
 
 		mp := mget()
-		// 尝试从空闲列表中返回m
+		// 尝试从空闲链表中返回m
 		unlock(&sched.lock)
 
 		if mp == nil {
@@ -419,6 +419,7 @@
 		}
 
 	23 runtime.newm(fn func(), _p_ *p)	
+		// 创建一个新的m，它开始于fn的调用，或者调度器
 		// 
 
 
