@@ -57,13 +57,13 @@
 
 
 	//类型测试
-	2.runtime.check()
+	2 runtime.check()
 
 	//
-	3.runtime.args()
+	3 runtime.args()
 
 	//
-	4.runtime.osinit()
+	4 runtime.osinit()
 		ncpu = getproccount() //获取CPU计算
 		physHugePageSize = getHugePageSize() //获取大页大小
 		
@@ -73,7 +73,7 @@
 	// make & queue new G
 	// call runtime.mstart
 
-	5.runtime.schedinit()
+	5 runtime.schedinit()
 		_g_ := getg() //获取当前g的指针
 		sched.maxmcount = 10000 //m的最大计数为1w
 		tracebackinit()
@@ -94,15 +94,15 @@
 		parsedebuggvars() //解析debug变量
 		procresize(procs) //write barrier needs a P	
 
-	6.runtime.mallocinit()
+	6 runtime.mallocinit()
 		mheap_.init() //堆初始化
 		_g_ := getg()
 		_g_.m.mcache = allocmacache()
 
-	7.runtime.mcommoninit()
+	7 runtime.mcommoninit()
 		mpreinit(mp) //m.gsignal初始化，其中新建g，同时g的stack需要申请。从系统内存申请，或者从stackpool申请，或者从heap（mheap_）申请。
 		
-	8.runtime.procresize(nproc int32) *p
+	8 runtime.procresize(nproc int32) *p
 		// initialize new P's
 		for i := old; i < nprocs; i++ {
 			pp := allp[i]
@@ -114,7 +114,7 @@
 			atomicstorep(unsafe.Pointer(&allp[i]), unsafe.Pointer(pp))
 		}
 
-	9.runtime.main()
+	9 runtime.main()
 		lockOSThread()		
 		if g.m != &m0 {
 			throw("runtime.main not on m0")
@@ -136,7 +136,7 @@
 
 		exit(0)
 
-	10.runtime.gcenable() 
+	10 runtime.gcenable() 
 		c := make(chan int, 2)
 		go bgsweep(c)
 		go bgscavenge(c)
@@ -144,7 +144,7 @@
 		<-c
 		memstats.enablegc = true
 
-	11.func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int)
+	11 func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int)
 		// 将当前goroutine设置为waiting状态，并且调用unlockf函数
 		// 如果unlockf返回false，goroutine恢复
 		// reason解释goroutine parked的原因
@@ -178,7 +178,7 @@
 		mcall(park_m)
 
 		
-	12.runtime.newproc(siz int32, fn *funcval) 
+	12 runtime.newproc(siz int32, fn *funcval) 
 		//创建一个新的协程用于运行fn
 		//将fn放在g的队列中等待运行
 		//编译器将go声明转换成对它的调用
@@ -194,7 +194,7 @@
 		}) 
 
 		
-	13.runtime.park_m
+	13 runtime.park_m
 		// 在g0中继续暂停
 		
 		_g_ := getg()
@@ -217,9 +217,9 @@
 
 		schedule()
 
-	14.runtime.casgstatus(gp *g, oldval, newval uint32)
+	14 runtime.casgstatus(gp *g, oldval, newval uint32)
 		// 如果设置为Gscanstatus或者从Gscanstatus状态变更，这样抛出异常。取而代之的是castogscanstatus 和casfrom_Gscanstatus
-        // 如果g->atomicstatus处于Gscan状态，casgstatus将会一直循环，直到设置状态为Gscan的routine完成。
+	        // 如果g->atomicstatus处于Gscan状态，casgstatus将会一直循环，直到设置状态为Gscan的routine完成。
 		
 		if (oldval&_Gscan != 0) || (newval&_Gscan != 0) || oldval == newval {
 			//throw() //在系统栈
@@ -250,7 +250,7 @@
 			gp.gcscanvalid = false
 		}
 
-	15.runtime.dropg()
+	15 runtime.dropg()
 		// dropg将移除m和当前routine m->curg的关联
 		// 通常调用者变更gp的Grunning状态然后立刻调用dropg完成该项工作
 		// 调用者还负责安排gp在恰当的时间状态变更为ready重新启动。
@@ -262,7 +262,7 @@
 		 setMNoWB(&_g_.m.curg.m, nil) //非写屏障设置m当前gouroutine的m为空
 		 setGNoWB(&_g_.m.curg, nil) //非写屏障设置m当前goroutine为空
 
-	16.runtime.execute(gp *g, inheritTime bool)
+	16 runtime.execute(gp *g, inheritTime bool)
 		// 调度gp在当前M上运行。
 		// 如果inheritTime是true，gp在当前时间片中继承保留的时间。否则它开始一个新的
 		// 时间片。
@@ -290,7 +290,7 @@
 
 		gogo(&gp.sched)
 
-	17.runtime.schedule()
+	17 runtime.schedule()
 		// 调用执行一轮是：寻找一个可执行的goroutine并且执行。
 		_g_ := getg()
 
@@ -331,6 +331,99 @@
 			execute(_g_.m.lockedg.ptr(), false)
 		}
 
+	18 runtime.stoplockedm() 
+		// 停止锁定到g的当前M 的执行，直到g再次执行。
+		_g_ := getg()
+		
+		if _g_.m.p != 0 {
+			// 调度其他M来运行这个P
+			_p_ := releasep()
+			handoffp(_p_)
+		}
+
+	19 runtime.releasep() *p
+		// 断开p与当前m的联系
+		_g_ := getg()
+		// 获得当前m关联的p
+		_p_ := _g_.m.p.ptr()
+		// 当前m的p为0
+		_g_.m.p = 0
+		// 当前m的mcache为nil
+		_g_.m.mcache = nil
+		// 相应的p的m为0
+		_p_.m = 0
+		// 设置p的状态为空闲
+		_p_.status = _Pidle
+		return _p_
+
+	20 runtime.handoffp(_p_ *p)
+		// 通过系统调用或者锁定的M，挂起_p_
+		// 总是不需要P运行，所以不允许写屏障。
+		// handoffp 必须在findrunnable返回G并在_p_上运行的任何情况下启动M。
+		
+		if !runqempty(_p_) || sched.runqsize != 0 {
+						
+		}
+
+	21 runtime.runqempty(_p_ *p) bool 
+		// runqempty报告_p_在本地运行队列中是否有Gs。
+		// 假设它从不返回true
+		
+		for {
+			head := atomic.Load(&_p_.runqhead)
+			tail := atomic.Load(&_p_.runqtail)
+			runnext := atomic.Loaduintptr((*uintptr)(unsafe.Pointer(&_p_.runnext)))
+			// p.runnext，如果非空，是一个由当前G准备的可运行的G。
+			// 如果正在运行的G还有时间片，那么接着运行的应该是runnext，而不是
+			// 在runq中Gs。它将继承当前时间片剩余的时间。
+			// 如果一部分的goroutine被锁定为通信与等待的模式，被设置为一个单元的调度
+			// 消除由于将处于准备状态的goroutine添加到队列末尾而产生（可能）很大
+			// 调度延迟。
+
+			if tail == atomic.load(&_p_.runqtail) {
+				return head == tail && runnext == 0
+			}
+		}
+
+	22 runtime.startm(_p_ *p, spinning bool)
+		// 调度一些M来运行P(如果需要会创建新的M)
+		// 如果p为空，尝试获取一个空闲的p，如果没有空闲p怎不做任何处理。
+		// 可能运行时m.p为空，所以不允许写屏障。
+		// 如果设置了spinning，调用者已经增加nmspinning和startm将减少nmspinning或者在新启动的M中设置m.spinning
+		
+		lock(&sched.lock)
+		if _p_  == nil {
+			// 尝试从空闲列表中返回p
+			// sched必须被锁定
+			// 可能y运行中处于STW，所以不允许写屏障。
+			_p_  = pidleget() 
+			if _p_ == nil {
+				unlock(&sched.lock)
+				if spinning {
+					
+				}
+				return
+			}
+		}
+
+		mp := mget()
+		// 尝试从空闲列表中返回m
+		unlock(&sched.lock)
+
+		if mp == nil {
+			var fn func()
+			if spinning {
+				fn = mspinning
+			}
+			newm(fn, _p_)
+			return
+		}
+
+	23 runtime.newm(fn func(), _p_ *p)	
+		// 
+
+
+		
 
 ### 参考
 	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
