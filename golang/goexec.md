@@ -496,7 +496,26 @@
 
 		}
 
+	29 runtime.mspan
+		//go:notinheap
+		
+		// 链表中下一个mspan，如果没有为nil
+		next *mspan
+		// 链表中前一个mspan，如果没有为nil
+		prev *mspan
+		// 用作debug，TODO: Remove
+		list *mSpanList
 
+		// span第一个字节的地址，又名s.base()
+		startAddr uintptr
+		// span中页数目
+		npages uintptr 	
+
+		// 在mSpanManual mspan中的空闲对象链表
+		manualFreeList gclinkptr
+
+		// 
+		freeindex uintptr
 	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
