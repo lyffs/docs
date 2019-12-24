@@ -419,15 +419,91 @@
 		}
 
 	23 runtime.newm(fn func(), _p_ *p)	
-		// 创建一个新的m，它开始于fn的调用，或者调度器
-		// 
+		// 创建一个新的m，它开始于fn或者调度器的调用
+		// fn 需要是静态的并且不是堆申请的闭包
+		// 运行的时候m.p可能为nil，所以不允许写屏障
 
+		mp := allocm(_p_, fn)
+
+
+	24 runtime.allocm(_p_ *p, fn func()) *m
+		// 申请一个和任何线程无关的m
+		// 如果需要的话，可以把p用作申请的上下文。
+		// fn被记录为新m的m.mstartfn
+
+		// 该函数运行写屏障即使调用者没有这样做，因为它借用了_p_
+		//  
+		_g_ := getg() //获取当前goroutine
+		acquirem() // 禁止GC因为在sysmon中被调用
+		if _g_.m.p == 0 {
+			// 在函数中为了mallocs借用p
+			// 把p和当前m关联起来
+			// 
+			acquirep(_p_)
+		}
+
+	25 runtime.acquirep(_p_ *p)
+		// 这部分的执行不允许写屏障
+		// wirep是acquirep的第一步，它实际上是将当前M和_p_关联起来。
+		// 所以这部分我们不允许写屏障，因为我们没有一个P。
+		// 设置_g_.m.p.set(_p_)
+		// _p_.m.set(_g_.m)
+		wirep(_p_)	
+		// 拥有P，现在允许写屏障
+
+		// 在P从可能旧的mcache中申请之前，执行延迟的mcache刷新
+		_p_.mcache.prepareForSweep()
+
+	26 runtime (c *mcache)prepareForSweep()
+		// 当c已经发布，prepareForSweep会刷新c如果系统已经进入一个新的sweep(扫描)阶段
+		// 这肯定发生在sweep阶段开始和第一次申请之间。
+
+		// 另外，为了替换 我们确保每一个P在(starting the world)和分配之间的都这样做，
+		// 我们可以开启allocte-black，允许申请像平常一样继续，用一个ragged barrier在
+		// 扫描的开始来确保所有缓存的spans被扫描，然后禁用allocate-black。然而，出于
+		// 这个目的很难避免位标记蔓延至下个GC循环。
+
+		sg := mheap_.sweepgen
+		if c.flushGen == sg {
+			return
+		} else if c.flushGen != sg-2 {
+			throw("bad flush")
+		}
+
+		c.releaseAll()
+
+	27 runtime (c *mcache)releaseAll
+		for i := range c.alloc {
+			s := c.alloc[i]
+			if s != &emptymspan {
+				// s非空mspan
+				mheap_.central[i].mcentral.uncacheSpan(s)
+				c.alloc[i] = &emptymspan
+			}
+		}
+		
+	28 runtime (c *mcentral) uncacheSpan(s *mspan)
+		if s.allocCount == 0 {
+			throw("uncaching span but s.allocCount == 0")
+		}
+
+		sg := mheap_.sweepgen
+		// 
+		stale := s.sweepgen == sg+1
+		if stale {
+
+		} else{
+
+		}
+
+
+	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
 		_g_ := getg() //获取当前goroutine
-		acquirem() //
+		acquirem() // 
 
 		_p_ := _g_.m.p.ptr() //返回PP指针
 		newg := gfget(_p_)
