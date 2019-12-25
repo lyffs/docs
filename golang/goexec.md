@@ -516,6 +516,14 @@
 
 		// 
 		freeindex uintptr
+
+		// 从sizeclass中寻找nelms，如果有助于提高性能，请删除该字段。
+		// span中对象数目
+		nelems uintptr
+		
+		// 在freeindex中缓存allocBits
+		allocCache uint64
+
 	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
