@@ -517,7 +517,22 @@
 		// freeindex 是从0到nelems之间的索引 在span中用来扫描下一个空闲的对象
 		// 每次申请从freeindex开始扫描allocBits直到遇到0，用来指示一个空闲的对象
 		// freeindex随后调整所以下次扫描开始于刚刚发现的空闲对象
+		
+		// 如果freeindex == nelem，这span没有空闲的对象
+		
+		// allocBits是span中对象的位图，如果n是大于freeindex并且allocBits[n/8] & (1<<(n%8)) == 0
+		// 该对象n是空闲的；否则，对象n已经被申请。
+		// 开始于nelem的Bits还没有被定义，所以不能被引用。
+		// 
+		// 对象n开始于地址 n*elemsize + (start << pageShift)
 		freeindex uintptr
+
+		// span中对象的数目
+		nelems
+		
+		// 
+		allocCache
+		
 	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
