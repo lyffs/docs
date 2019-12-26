@@ -514,16 +514,10 @@
 		// 在mSpanManual mspan中的空闲对象链表
 		manualFreeList gclinkptr
 
-		// 
+		// freeindex 是从0到nelems之间的索引 在span中用来扫描下一个空闲的对象
+		// 每次申请从freeindex开始扫描allocBits直到遇到0，用来指示一个空闲的对象
+		// freeindex随后调整所以下次扫描开始于刚刚发现的空闲对象
 		freeindex uintptr
-
-		// 从sizeclass中寻找nelms，如果有助于提高性能，请删除该字段。
-		// span中对象数目
-		nelems uintptr
-		
-		// 在freeindex中缓存allocBits
-		allocCache uint64
-
 	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
