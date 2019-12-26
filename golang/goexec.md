@@ -504,6 +504,15 @@
 
 		n := int(s.nelems) - int(s.allocCount)
 		if n > 0 {
+			//
+			atomic.Xadd64(&c.nmalloc, -int64(n))
+			lock(&c.lock)
+			c.empty.remove(s)
+			c.nonempty.insert(s)
+			if !stale {
+				atomic.Xadd64(&memstat.heap_live, -int64(n)*int64(s.elemsize))
+			}
+			unlock(&c.lock)
 		}
 
 		if stale {
