@@ -482,7 +482,9 @@
 			}
 		}
 		
+		
 	28 runtime (c *mcentral) uncacheSpan(s *mspan)
+		// 从mcache中返回span
 		if s.allocCount == 0 {
 			throw("uncaching span but s.allocCount == 0")
 		}
@@ -491,9 +493,22 @@
 		// 
 		stale := s.sweepgen == sg+1
 		if stale {
-
+			// 在标记开始之前，span已经缓存，扫描它是我们的责任。
+			// 设置sweepgen来指明它没有缓存但是需要标记，但是不能从
+			// 这申请。sweep将设置s.sweepgen来指明s正在扫描
+			atomic.Store(&s.sweepgen, sg-1)
 		} else{
+			// 指明s不再需要标记 
+			atomic.Store(&s.sweepgen, sg)
+		}
 
+		n := int(s.nelems) - int(s.allocCount)
+		if n > 0 {
+		}
+
+		if stale {
+			//
+			s.sweep(false)
 		}
 
 	29 runtime.mspan
@@ -528,11 +543,82 @@
 		freeindex uintptr
 
 		// span中对象的数目
-		nelems
+		nelems uintptr
 		
+		// 在freeindex中缓存allocBits，移动allocCache，使得最低位对应index的位。
+		// allocCache 持有allocBits的补充，因此允许ctz(count trailing zero)直接使用它。
+		// allocCache可能包含超越s.nelems的位；调用者必须忽视它。
+		allocCache uint64
+
+		// allocBits和gcmarkBits持有指向span标记和申请位的指针。这些指针是8字节对齐。
+		// 由三块持有数据的区域
+		// free: 不再访问的Dirty区域可以被重用
+		// next: 持有下个GC循环使用到信息
+		// current: 当前GC循环中使用的信息
+		// previous: 上一个GC循环中使用的信息
+		// 一个新的GC循环开始于finishsweep_m的调用。finishsweep_m将previous区域移到free
+		// 区域，current区域移到previous区域，next区域移到current区域，
+		// next区域将被填充，因为span请求内存为下一个GC循环保存gcmarkBits，并为新分配的
+		// span保存allocBits
+		
+		// 指针运算是靠手工完成，取代数组为了避免在关键路径上进行边界检查。
+		// 标记阶段将会释放旧的allocBits，同时设置allocBits为gcmarkBits。gcmarkBits
+		// 被替换为一个新的零化内存。
+		allocBits *gcBits
+		gcmarkBits *gcBits
+
+		// 标记代数
+		// 当 sweepgen == h->sweepgen-2, span需要被标记
+		// 当 sweepgen == h->sweepgen-1, span正在被标记
+		// 当 sweepgen == h->sweepgen, span已经被标记和准备使用
+		// 当 sweepgen == h->sweepgen+1, 在开始扫描之前缓存了span，现在仍然缓存，需要进行扫描
+		// 当 sweepgen == h->sweepgen+3, span被扫描，接着缓存，仍然需要缓存
+		// 每次GC之后，h->sweepgen增加2
+
+		sweepgen uint32
 		// 
-		allocCache
+		divMul uint16
+		// 如果非零，elemsize是2的幂，&它会得到对象分配基地址
+		baseMask uint16
+		// 已经分配的对象数目
+		allocCount uint16
+		// 类型级别和nosacn
+		spanclass spanClass	
+
+		// mspan是基于页面的
+		// 当msapn处于heap free treap(空闲树堆)，状态为mSpanFree, 同时heapmap(s->start)等于span;
+		// heapmap(s->stars+s->npages-1) == span。
+		// 当mspan处于heap scav treap(scav树堆), 那么除了上述scavenged=true，在其他情况下，scavenged=false。
+		//
+		// 当一个mspan被申请时，状态等于mSpanInUse或者mSpanManual，heapmap(i)等于span 对于所有的s->start <= i < s->start+s->npages
+		// 每个mspan都是在双向链表中，不是在mheap的busy链表中，就在其中一个mcentral的span链表中。
 		
+		// mspan代表着真实内存，拥有这些状态：mSpanInUser，mSpanManual或者mSpanFree。这些状态的变迁限制如下：
+		// * span可能从空闲跃迁为in-use或者manual在任何GC阶段
+		// * 在标记过程(gcpase == _GCoff)，span可能从in-use跃迁为free(作为标记的结果)，或者manual跃迁为free(作为栈被释放的结果)
+		// * 在GC(gcphase != _GCoff), span 不能从in-use或者manual跃迁为free。因为并发GC可能读一个指针，然后查找它的span，span
+		// 状态必须是单调不变的。
+		// mSpanInUse 支持垃圾回收的堆申请
+		// mSpanManual 手动管理的申请
+		state mSpanState
+		
+		// 在申请之前是否需要零化
+		needzero uint8
+		// 除以elemsize - divMagic.shift
+		divShift uint8
+		// 除以elemsize - divMagic.shift2
+		divShift2 uint8
+		// span的页是否释放给回OS
+		scavenged bool
+		// sizeclass或者npages计算得到
+		elemsize uintptr
+		// span的结束数据
+		limit uintptr
+		// 守卫特殊队列
+		speciallock mutex
+		// 按偏移量排序的特殊记录的链表
+		// specials *special
+	
 	
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
