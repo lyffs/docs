@@ -728,6 +728,34 @@
 		scavengeRetainedGoal uint64
 		scavengeGen uint64
 
+		// 页回收状态
+		// recaimIndex是在下一页allArens的页面索引用来回收，特别是
+		// 它指向arena allArenas[i / pagePreArena]的page(i%pagesPerArena)
+		// 如果它大于等于 1<<63，页面reclaimer已经做了扫描页面标记
+		reclaimIndex uint64
+
+		// reclaimCredit是用于额外页面扫描的备用信贷。由于页面reclaimer工作
+		// 在大量的块中，他可能相比于请求回收更多。任何备用页面释放会回到
+		// 信贷pool
+		reclaimCredit uintptr
+		
+		// Malloc统计
+		// 用于大对象申请的字节数
+		largealloc uint64
+		// 大对象申请的数目
+		nlargealloc uint64
+		// 用于大对象的空闲字节数 >maxsmallsize
+		largefree uint64
+		// 空闲大对象数目
+		nlargefree uint64
+		// 空闲小对象数目
+		nsmallfree [_NumSizeClassed]uint64
+
+		// arena是堆arena map。它指向整个可用虚拟地址空间的每个arena帧的堆元数据
+		// 
+		arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena
+
+
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
