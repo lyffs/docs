@@ -504,19 +504,24 @@
 
 		n := int(s.nelems) - int(s.allocCount)
 		if n > 0 {
-			//
+			// cacheSpan更新alloc，猜想s上面的所有对象都被申请。调整为任何没有
+			// 在潜在的标记span之前 我们必须做这个。
 			atomic.Xadd64(&c.nmalloc, -int64(n))
 			lock(&c.lock)
 			c.empty.remove(s)
 			c.nonempty.insert(s)
 			if !stale {
+				// mCentral_CacheSpan 保守的计算heap_live中未分配的槽位，撤销这个
+				// 如果标记前span已经缓存，接着heap_live完全是重新计算的，因为缓存了缓存了这个span，所以我们对于陈旧的
+				// span作这样的操作。
+				// 
 				atomic.Xadd64(&memstat.heap_live, -int64(n)*int64(s.elemsize))
 			}
 			unlock(&c.lock)
 		}
 
 		if stale {
-			//
+			// 现在s正在正确的mcentral列表中，我们可以标记它。
 			s.sweep(false)
 		}
 
@@ -627,8 +632,101 @@
 		speciallock mutex
 		// 按偏移量排序的特殊记录的链表
 		// specials *special
+
+	30 runtime.stackcache_clear(c *mcache)
+		lock(&stackpoolmu)	
+		for order := uint8(0); order < _NumStackOrders; order++ {
+			x := c.stackcache[order].list
+			for x.ptr() != nil {
+				y := x.ptr().next
+				stackpoolfree(x, order)
+				x = y
+			}
+			c.stackcache[order].list = 0
+			c.stackcache[order].size = 0
+		}
+		unlock(&stackpoolmu)
 	
-	
+	31 runtime.stackpoolfree(x gclinkptr, order uint8)
+		// 将栈x加入到空闲pool，调用时必须持有stackpoolmu
+		s := spanOfUnchecked(uintptr(x))
+		if s.state != mSpanManual {
+			throw("")
+		}
+
+	32 runtime.spanOfUnchecked(p uintptr) *mspan 
+		//go:nosplit
+		// spanOfUnchecked 等价于 spanOf，不过调用者必须确保指针p处于可申请的堆区域中。
+		ai := arenaIndex(p)
+		return mheap_.arens[ai.l1()][ai.l2()].spans[(p/pageSize)%pagesPerArena]
+
+	33 runtime.mheap
+		//go:noinheap
+		
+		// heap本身就是"free"和"scav"树堆，但是其他的全局数据也在这里。
+		// mheap不能是堆分配的因为它包含了不能堆分配的mSpanLists。
+
+		// 锁只能在系统栈获取，否则g可能死锁如果栈扩展的时候持有锁。
+		lock mutex
+		// 空闲span
+		free mTreap
+		// 标记generation
+		sweepgen uint32
+		// 所有span被标记
+		sweepdone uint32
+		// 活跃sweepone调用次数
+		sweepers uint32
+		
+		// allspans是所有创建过的mspans切片。每个mspan只出现一次。
+		// allspans的内存手工管理，可以重新申请和随着heap增长移动
+		// 
+		// 通常，allspans由mheap_.lock保护，阻止并发访问和备份存储的释放
+		// 在STW期间访问可能没有持有锁，但必须确保在访问期间不能发生申请
+		allspans []*mspan
+
+		// sweepSpans维护两个mspan栈，一个是标记在使用的mspan，另外一个
+		// 未标记在使用的msapn。在每次GC期间有2种主要的角色。由于在每次GC循环中，
+		// sweepgen增加2，这就意味标记的spans在sweepSpans[sweep/2%2]和未标记的
+		// spans在sweepSpans[1-sweepgen/2%2]。标记从未标记的stack pop出来的span,
+		// push 仍然in-use的spans入栈。同样地，分配一个正在使用的span会push到
+		// 以标记的栈
+		sweepSpans [2]gcSweepBuf
+
+		// 这些参数表示从heap_live到页面扫描计数的一个线性函数。均衡的sweep
+		// 系统给标记为黑色在当前heap_live通过将当前扫描计数保持在该线上面
+
+
+		// 这条线的斜率为sweepPagesPerByte，通过一个基点(sweepHeapLiveBasis，pagesSweptBasis)
+		// 在任何时间，系统位于(memstats.heap_live，pagesSwept)在这片空间。
+		// 重要的是，这条直线穿过我们控制的一个点，而不是简单地从原点(0,0)开始，因为这样
+		// 可以让我们在考虑当前进程的同时调整扫描速率。如果我们只是调整斜率，它会产生不连续
+		// 债务如果有任何进展的话。
+
+		// 统计中的spans页
+		pagesInUse uint64
+		// 这个循环中标记页面，原子更新
+		pagesSwept uint64
+		// pagesSwept 用来作为原始标记比率，原子更新
+		pagesSweptBasis uint64
+		// heap_live中的值用来作为原始标记比率
+		sweepHeapLiveBasis uint64
+		// 均衡的标记比率
+		sweepPagesPerByte float64
+
+		
+		// 回收速率参数
+		// 2个基础参数和回收比率平衡均衡的标记实现，基本区别是:
+		// *回收关注RSS，估计为heapRetained()
+		// *不是推送回收到GC，它被定步到一个基于时间的速率计算在gcPaceScavenger
+
+		// scavengeRetainedGoal代表这我们的目标RSS
+		// 所有的字段访问必须通过锁
+		// 
+		scavengeTimeBasis int64
+		scavengeRetainedBasis uint64
+		scavengeBytesPerNS float64
+		scavengeRetainedGoal uint64
+		scavengeGen uint64
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
@@ -697,4 +795,5 @@
 
 ### 参考
 	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
-
+	https://blog.csdn.net/u010853261/article/details/103359762
+	https://me.csdn.net/u010853261	
