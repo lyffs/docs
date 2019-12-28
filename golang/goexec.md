@@ -751,9 +751,93 @@
 		// 空闲小对象数目
 		nsmallfree [_NumSizeClassed]uint64
 
-		// arena是堆arena map。它指向整个可用虚拟地址空间的每个arena帧的堆元数据
-		// 
+		// arenas是堆arena map。它指向整个可用虚拟地址空间的每个arena帧的堆元数据
+		// 使用arenaIndex来计算在这个切片的index
+		// 对于Go heap不支持的地址空间区域，arena map可能包含nil
+		// 修改被mheap_.lock保护，执行读不需要锁；然而，一个给定
+		// 实例在没有持有锁的情况下可以从nil过渡到non-nil。(实例从不
+		// 过渡回来为nil)
+		// 通常，这是一个2层映射由L1map和可能许多L2maps组成。当他们是大量arena栈时，这样节省空间。
+		// 然而，在很多平台(即使是64-bit)，arenaL1Bits等于0，使这成为
+		// 一个有效的简单等级的map。在这种场景下，arena[0]永远不会为nil
 		arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena
+
+		// heapArenaAlloc 是一个块用于申请heapArena对象的预保留。
+		// 这只使用在32-bit上，我们预保留这块空间避免和堆本身交叉。
+		heapArenAlloc linearAlloc
+
+		// arenaHist是用来添加更多heap arenas的地址列表。它最初由一组通常提示地址填充，伴随这实际堆范围边界增长。
+		arenaHints *arenaHint
+
+		// arena 是一块用于申请heap arenas(真实arenas)的预保留空间，只是用在32-bits上。
+		arena linearAlloc
+		
+		// allArenas 是每个映射arena的arenaIndex。它可以用来遍历地址空间
+		// 访问由mheap_.lock保护，然而，由于只是追加和老的备份数组从不释放，获取mheap_.lock是安全的，复制切片头，然后释放mheap_.lock。
+		allArenas []arenaIdx
+	
+		// sweepArenas 是发生在标记循环开始的allArenas快照。通过阻塞GC(或者机制抢占)可以安全地读。
+		sweepArenas []arenaIdx
+		
+		// curArena 是heap正在增长的arena。它应该总是物理页对齐的。
+		curArena struct {
+			base, end uintptr
+		}
+
+		// central 空闲列表面对小类型对象
+		// padding 确保mcentrals是以CacheLinePadSize字节分隔，所以每个mcentral.lock得到自己的cache line
+		// central的索引是spanClass
+		central [numSpanClass]struct {
+			mcentral mcentral
+			pad [cpu.CacheLinePadSize - unsafe.Sizeof(mcentral{})%cpu.CacheLinePadSize]byte
+		}
+
+		// span申请者
+		spanalloc fixalloc
+		// mcache申请者
+		cachealloc fixalloc
+		// treapNodes申请者
+		treapalloc fixalloc
+		// specialfinalizer申请者
+		specialfinalizeralloc fixalloc
+		// specialprofile申请者
+		specialprofilealloc
+		// special record 申请者的锁
+		speciallock mutex
+		// arenaHints 申请者
+		arenaHintAlloc fixalloc
+		
+		// 从不设置，这里只是强制specailfinalizer类型为DWARF
+		unused *specialfinalizer
+
+	30 runtime.heapArena struct 
+		// heapArena存储heap arena的数据单元。heapArenas储存在Go heap
+		// 之外，可以通过mheap_.arenas 索引访问。
+		// 它直接通过OS申请，所以理想情况下它应该是系统页的倍数。举例，避免添加小字段。
+		
+		// bitmap 存储在这个区域的words的指针/标量bitmap，适合heapBits类型可以访问它
+		bitmap [heapArenaBitmapBytes]byte
+		// spans映射这片区域的虚拟页ID到*mspan，对于申请的spans，它们的页映射span本身。
+		// 对于空闲的span，只有最低位和最高位的页映射span本身。内部页映射到任意span。
+		// 对于从来没有被申请的页面，spans入口为空 
+		// 
+		// 修改通过mheap.lock保护。不需要锁可以执行读操作，但是只能执行已知包含在使用或者
+		// 栈的span的索引。这就意味着在确定这个地址是会否有效和在spans数组中查找之间肯定不是
+		// 安全点。
+		spans [pagePerArena]*mspan
+
+		// pageInUse是一个指定那个spans处于mSpanInUse状态的bitmap。这个bitmap的索引是页号
+		// 但只是bit对应到每个使用的span的第一页。
+		pageInUse [pagePerArena/8]uint8
+
+		// pageMarks 是一个指明那个spans拥有标记对象的bitmap，类似pageInUse,只是每个使用的
+		// span的第一页与bit对应。
+
+		// 在标记过程中，写是原子完成。读不是原子性和锁空闲的，因为他们只是在扫描期间发生。(因此和读从不竞争)
+		// 这只是用来快速查找这整个span可以释放。
+		// 
+		pageMarks [pagePerArena/8]uint8
+
 
 
 	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
