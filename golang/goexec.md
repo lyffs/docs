@@ -651,14 +651,70 @@
 		// 将栈x加入到空闲pool，调用时必须持有stackpoolmu
 		s := spanOfUnchecked(uintptr(x))
 		if s.state != mSpanManual {
+			// msapn申请区域不是stack，throw
 			throw("")
 		}
+		if s.manualFreeList.ptr() == nil {
+			stackpool[order].insert(s)
+		}
+		x.ptr().next = s.manualFreeList
+		s.manualFreeList = x
+		s.allocCount--
+		
+		if gcphase == _GCoff && s.allocCount == 0 {
+			// Span是完全空闲，如果我们正在标记的话，立刻返回给heap。
+			// 如果GC是活跃，我们推迟释放直到GC结尾，为了避免如下类型的场景
+			// 1) GC开始，扫描一个SudoG但是还没有标记SudoG.elem指针
+			// 2) 指向栈的指针被复制
+			// 3) 旧的栈被释放
+			// 4) 包含的span被标记为空闲
+			// 5) GC尝试标记SudoG.elem指针。标记失败因为指针看起来在空闲span里面。
+			// 
+			stackpool[order].remove(s)
+			s.manualFreeList = 0
+			osStackFree(s)
+			mheap_.freeManual(s, &memstat.stacks_inuse)
+		}
+		
 
 	32 runtime.spanOfUnchecked(p uintptr) *mspan 
+		// 先通过指针p找出p所属的arena index，然后再通过mheap_.arenas的映射关系找到响应的mspan
 		//go:nosplit
 		// spanOfUnchecked 等价于 spanOf，不过调用者必须确保指针p处于可申请的堆区域中。
 		ai := arenaIndex(p)
 		return mheap_.arens[ai.l1()][ai.l2()].spans[(p/pageSize)%pagesPerArena]
+
+	33 runtime.spanOf(p uintptr) *mspan
+		// spanOf返回p所属的span。如果p不是指向heap arena或者没有span包含指针p，spanOf返回nil
+		// 如果p不是指向已经申请的内存，有可能返回不包含p的non-nil的span。如果可能，调用者应该
+		// 调用spanOfHeap或者明确地检查span边界。
+		// 必须是nosplit因为调用者是nosplit
+
+		// 这个函数看起来大，但是我们在arenaL1Bits上面使用大量的常量用来将它控制在预算之内。另外
+		// 这里很多检查都是Go不论如何都是需要作的安全检查，所以生产代码非常短。
+		ri := arenaIndex(p)
+		if arenaL1Bits == 0 {
+			if ri.l2() >= uint(len(meahp_.arenas[0])) {
+				return nil
+			}
+		} else {
+			if ri.l1() >= uint(len(mheap_.arenas)) {
+				return nil
+			}
+		}
+		
+		l2 := mheap_.arenas[ri.l1()]
+		if arenaL1Bits != 0 && l2 == nil {
+			return nil
+		}
+
+		ha := l2[ri.l2()]
+		if ha == nil {
+			return nil
+		}
+
+		return ha.spans[(p/pagesize)%pagesPerArena]
+	
 
 	33 runtime.mheap
 		//go:noinheap
