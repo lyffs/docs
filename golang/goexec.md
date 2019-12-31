@@ -866,6 +866,21 @@
 		// 从不设置，这里只是强制specailfinalizer类型为DWARF
 		unused *specialfinalizer
 
+	34 runtime (h *mheap) coalesce(s *mspan)
+		// merge 是一个帮助器用来将其他合并到s，删除heap元数据中对这些的引用，然后丢弃他们。这些mspan必须与s相邻
+		merge := func(a, b, other *mspan) {
+		// 调用者必须确保a.startAddr < b.startAddr 和a或者b是s。a和b必须是相邻的。other是两者中不是s的一个。
+		if pageSize < physPageSize && a.scavenged && b.scavenged {
+			// 如果我们在pageSize < physPageSize的系统上合并2个回收的spans，他们的边界总是在物理页边界上，因为重组发生在合并过程。
+			_, start := a.physPageBounds()
+			end, _ := b.physPageBounds()
+			if start != end {
+				throw("")
+			}
+		}
+
+
+
 	30 runtime.heapArena struct 
 		// heapArena存储heap arena的数据单元。heapArenas储存在Go heap
 		// 之外，可以通过mheap_.arenas 索引访问。
