@@ -867,6 +867,8 @@
 		unused *specialfinalizer
 
 	34 runtime (h *mheap) coalesce(s *mspan)
+		// 合并相邻mspan
+
 		// merge 是一个帮助器用来将其他合并到s，删除heap元数据中对这些的引用，然后丢弃他们。这些mspan必须与s相邻
 		merge := func(a, b, other *mspan) {
 		// 调用者必须确保a.startAddr < b.startAddr 和a或者b是s。a和b必须是相邻的。other是两者中不是s的一个。
@@ -878,6 +880,23 @@
 				throw("")
 			}
 		}
+
+		// 通过base和npages调整s，同时也是在heap 元数据中
+		s.npages += other.npages
+		s.needzero |= other.needzero
+		if a == s {
+			// s.base()+s.npages*pageSize-1是合并后mspan的尾地址
+			h.setSpan(s.base()+s.npages*pageSize-1, s)
+		} else {
+			s.startAddr = other.startAddr
+			h.setSpan(s.base(), s)
+		}
+
+		h.free.removeSpan(other)
+		other.state = mSpanDead
+		h.spanalloc.free(unsafe.Pointer(other))
+
+		
 
 
 
