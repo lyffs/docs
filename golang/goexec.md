@@ -442,6 +442,30 @@
 			acquirep(_p_)
 		}
 
+		// 释放空闲M列表。我们在某些地方做这个工作同时这可能释放我们可以使用的一个栈。
+		if sched.freem != nil {
+			lock(&sched.lock)
+			for freem := sched.freem; freem != nil; {
+				if freem.freewait != 0 {
+					next := freem.freelink
+					freem.freelink = newList
+					newList = freem
+					freem = next
+					continue
+				}
+				stackfree(freem.g0.stack)
+				freem = freem.freelink
+			}
+			sched.freem = newList
+			unlock(&sched.lock)
+		}
+		
+		mp := new(m)
+		mp.mstartfn = fn
+		mcommoninit(mp)
+
+		
+
 	25 runtime.acquirep(_p_ *p)
 		// 这部分的执行不允许写屏障
 		// wirep是acquirep的第一步，它实际上是将当前M和_p_关联起来。
@@ -892,9 +916,84 @@
 			h.setSpan(s.base(), s)
 		}
 
+		// 大小可能正在改变，所以treap需要删除相邻的对象，同时作为一个联合节点添加回去。
+		// 从mheap_.free treap找到mspan所属的treap节点，并移除。 
 		h.free.removeSpan(other)
+		// 设置该mspan的状态为 mSpanDead
 		other.state = mSpanDead
 		h.spanalloc.free(unsafe.Pointer(other))
+
+	35 runtime.stackfree(stk stack)
+		// go:systemstack
+		// stackfree释放stk上的n个字节stack申请。
+		// stackfree必须运行在系统栈上因为它用P的资源和必须不能扩张stack
+
+		// 获取当前goroutine
+		gp := getg()
+		v := unsafe.Pointer(stk.lo)
+		// stack的大小
+		n := stk.hi - stk.lo
+		if n&(n-1) != 0 {
+			// 是否是2的幂
+			throw("")
+		}
+		if stk.lo+n < stk.hi {
+			throw("")
+		}
+		fi stackDebug >= 1 {
+			println("stackfree", v, n)
+			memclrNoHeapPointers(v, n)
+		}
+		if debug.efence != 0 || stackFromSystem != 0 {
+			if debug.efence != 0 || stackFaultOnFree != 0 {
+				sysFault(v, n)
+			} else {
+				sysFree(v, n, &memstats.stacks_sys)
+			}
+			return
+		}
+		if msanenables {
+			msanfree(v, n)
+		}
+		
+		if n < _FixedStack<<_NumStackOrders && n < _StackCacheSize {
+			order := uint8(0)
+			n2 := n
+			for n2 > _FixedStack {
+				order++
+				n2 >> 1
+			}
+			x := gclinkptr(v)
+			c := gp.m.mcache
+			if stackNoCache != 0 || c == nil || gp.m.preemptoff != "" {
+				lock(&stackpoolmu)
+				// 该stack是在heap内申请
+				stackpoolfree(x, order)
+				unlock(&stackpoolmu)
+			} else {
+				if c.stackcache[order].size >= _StackCacheSize {
+					// 该stack是在heap内申请
+					stackcacherelease(c, order)
+				}
+				x.ptr().next = c.stackcache[order].list
+				c.stackcache[order].list = x
+				c.stackcache[order].size += n
+			}
+		} else {
+			s := spanOfUnchecked(uintptr(v))
+			if s.state != mSpanManual {
+				throw()
+			}
+			if gcphase == _GCoff {
+				osStackFree(s)
+				mheap_.freeManual(s, &memstats.stacks_inuse)
+			} else {
+				log2npage := stacklog2(s.npages)
+				lock(&stackLarge.lock)
+				stackLarge.free[log2npage].insert(s)
+				unlock(&stackLarge.lock)
+			}	
+		}
 
 		
 
