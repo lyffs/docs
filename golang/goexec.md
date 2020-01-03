@@ -895,33 +895,49 @@
 
 		// merge 是一个帮助器用来将其他合并到s，删除heap元数据中对这些的引用，然后丢弃他们。这些mspan必须与s相邻
 		merge := func(a, b, other *mspan) {
-		// 调用者必须确保a.startAddr < b.startAddr 和a或者b是s。a和b必须是相邻的。other是两者中不是s的一个。
-		if pageSize < physPageSize && a.scavenged && b.scavenged {
-			// 如果我们在pageSize < physPageSize的系统上合并2个回收的spans，他们的边界总是在物理页边界上，因为重组发生在合并过程。
-			_, start := a.physPageBounds()
-			end, _ := b.physPageBounds()
-			if start != end {
-				throw("")
+			// 调用者必须确保a.startAddr < b.startAddr 和a或者b是s。a和b必须是相邻的。other是两者中不是s的一个。
+			if pageSize < physPageSize && a.scavenged && b.scavenged {
+				// 如果我们在pageSize < physPageSize的系统上合并2个回收的spans，他们的边界总是在物理页边界上，因为重组发生在合并过程。
+				_, start := a.physPageBounds()
+				end, _ := b.physPageBounds()
+				if start != end {
+					throw("")
+				}
 			}
+	
+			// 通过base和npages调整s，同时也是在heap 元数据中
+			s.npages += other.npages
+			s.needzero |= other.needzero
+			if a == s {
+				// s.base()+s.npages*pageSize-1是合并后mspan的尾地址
+				h.setSpan(s.base()+s.npages*pageSize-1, s)
+			} else {
+				s.startAddr = other.startAddr
+				h.setSpan(s.base(), s)
+			}
+	
+			// 大小可能正在改变，所以treap需要删除相邻的对象，同时作为一个联合节点添加回去。
+			// 从mheap_.free treap找到mspan所属的treap节点，并移除。 
+			h.free.removeSpan(other)
+			// 设置该mspan的状态为 mSpanDead
+			other.state = mSpanDead
+			h.spanalloc.free(unsafe.Pointer(other))
+		}
+	
+		// realign 是一个帮助器用于收缩other和扩容s使得他们的边界在一个物理页边界上。	
+		realign := func(a, b, other *mspan) {
+			// 调用者必须确保a.startAddr < b.startAddr同时a和b有它一个是s，a和b必须相邻。other是2者之中不是s那个。
+			// 如果pageSize >= physPageSize所以spans总是对齐物理页边界，所以只是退出。
+			if pageSize >= physPageSize {
+				return
+			}
+			// 由于我们重新调整other，我们必须从treap移除它
+			h.free.removeSpan(other)
+			
+			boundary := b.startAddr
 		}
 
-		// 通过base和npages调整s，同时也是在heap 元数据中
-		s.npages += other.npages
-		s.needzero |= other.needzero
-		if a == s {
-			// s.base()+s.npages*pageSize-1是合并后mspan的尾地址
-			h.setSpan(s.base()+s.npages*pageSize-1, s)
-		} else {
-			s.startAddr = other.startAddr
-			h.setSpan(s.base(), s)
-		}
-
-		// 大小可能正在改变，所以treap需要删除相邻的对象，同时作为一个联合节点添加回去。
-		// 从mheap_.free treap找到mspan所属的treap节点，并移除。 
 		h.free.removeSpan(other)
-		// 设置该mspan的状态为 mSpanDead
-		other.state = mSpanDead
-		h.spanalloc.free(unsafe.Pointer(other))
 
 	35 runtime.stackfree(stk stack)
 		// go:systemstack
