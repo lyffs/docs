@@ -951,23 +951,18 @@
 			h.free.insert(other)
 		}
 
-		// 大小可能正在改变，所以treap需要删除相邻的对象，同时作为一个联合节点添加回去。
-		// 从mheap_.free treap找到mspan所属的treap节点，并移除。 
-		h.free.removeSpan(other)
-		// 设置该mspan的状态为 mSpanDead
-		other.state = mSpanDead
-		h.spanalloc.free(unsafe.Pointer(other))
-	
-		// realign是一个帮助器用于收缩other和扩张s使得他们的边界处于同一个物理页边界上
-		realign := func(a, b, other *mspan) {
-			//
-			if pageSize >= physPageSize {
-				return
-			}
-			h.free.removeSpan(other)
+		hpMiddle := s.hugePages()
+
+	35 runtime (s *mSpan) hugePages() uintptr 
+		// hugePages 返回mspan所拥有的内存区域中的对齐物理页数量
+		if physHugePageSize == 0 || s.npages < physHugePageSize/pageSize {
+			return 0
 		}
 
-	35 runtime.stackfree(stk stack)
+
+
+
+	38 runtime.stackfree(stk stack)
 		// go:systemstack
 		// stackfree释放stk上的n个字节stack申请。
 		// stackfree必须运行在系统栈上因为它用P的资源和必须不能扩张stack
