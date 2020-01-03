@@ -934,10 +934,23 @@
 			// 由于我们重新调整other，我们必须从treap移除它
 			h.free.removeSpan(other)
 			
+			// Round的边界接近最接近物理页大小，接近已回收的span
 			boundary := b.startAddr
+			if a.scavenged {
+				boundary &^ = (physPageSize-1)
+			} else {
+				boundary = (boundary + physPageSize-1) &^ (physPageSize -1)
+			}
+			a.npages = (boundary - a.startAddr)/pageSize
+			b.npages = (b.startAddr + b.npages*pageSize-boundary) / pageSize
+			b.startAddr = boundary
+
+			h.setSpan(boundary-1, a)
+			h.setSpan(boundary, b)
+
+			h.free.insert(other)
 		}
 
-		h.free.removeSpan(other)
 
 	35 runtime.stackfree(stk stack)
 		// go:systemstack
