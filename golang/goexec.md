@@ -922,6 +922,15 @@
 		// 设置该mspan的状态为 mSpanDead
 		other.state = mSpanDead
 		h.spanalloc.free(unsafe.Pointer(other))
+	
+		// realign是一个帮助器用于收缩other和扩张s使得他们的边界处于同一个物理页边界上
+		realign := func(a, b, other *mspan) {
+			//
+			if pageSize >= physPageSize {
+				return
+			}
+			h.free.removeSpan(other)
+		}
 
 	35 runtime.stackfree(stk stack)
 		// go:systemstack
@@ -980,12 +989,16 @@
 				c.stackcache[order].size += n
 			}
 		} else {
+			// 根据地址uintptr(v)获取该地址所属的mspan:s
 			s := spanOfUnchecked(uintptr(v))
+			// 如果mspan状态不是mSpanManual，则抛出
 			if s.state != mSpanManual {
 				throw()
 			}
 			if gcphase == _GCoff {
+				// 如果我们正在sweeping，立即释放stack
 				osStackFree(s)
+				// 手动释放mspan:s
 				mheap_.freeManual(s, &memstats.stacks_inuse)
 			} else {
 				log2npage := stacklog2(s.npages)
@@ -994,10 +1007,6 @@
 				unlock(&stackLarge.lock)
 			}	
 		}
-
-		
-
-
 
 	30 runtime.heapArena struct 
 		// heapArena存储heap arena的数据单元。heapArenas储存在Go heap
