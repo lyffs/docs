@@ -953,11 +953,26 @@
 
 		hpMiddle := s.hugePages()
 
+
+		
 	35 runtime (s *mSpan) hugePages() uintptr 
+		// physPageSize 是操作系统物理页字节大小，Mapping和unmapping操作都是
+		// 在多重物理页上完成的。
+		// physHugePageSize 是操作系统默认物理大页的字节大小，它的申请对于应用不是透明的
+		// 它被猜测和验证是2的幂
+		
+		// 如果设置，这必须是由操作系统初始化代码(典型在osinit中)设置，在mallocinit字前。然而
+		// 设置它是可选的，同时保留默认值总是安全的(尽管可能效率较低)
+
+		// 由于physHugePageSize总是被猜测是2的幂，physHugePageSize 被定义为physHugePageSize == 
+		// 1 << physHugePageShift。physHugePageShift的目的是用来避免在性能关键函数上作划分。
+
 		// hugePages 返回mspan所拥有的内存区域中的对齐物理页数量
 		if physHugePageSize == 0 || s.npages < physHugePageSize/pageSize {
 			return 0
 		}
+		start := s.base()
+		end := start + s.npages*PageSize
 
 
 
