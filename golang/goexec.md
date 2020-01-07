@@ -495,6 +495,8 @@
 		}
 
 		c.releaseAll()
+		stackache_clear(c)
+		atomic.Store(&c.flushGen, mheap_.sweepgen)
 
 	27 runtime (c *mcache)releaseAll
 		for i := range c.alloc {
@@ -699,6 +701,24 @@
 			osStackFree(s)
 			mheap_.freeManual(s, &memstat.stacks_inuse)
 		}
+	
+
+	32 runtime (m *mheap) freeManual(s *mspan, stat *uint64)
+		// freeManual 释放一个由allocManual申请的手工管理的span，stat必须等于在申请s时传给allocManual的stat。
+		// 这只能当gcphase=_GCoff被调用。
+		// freeManual必须在系统栈中被调用因为它需要heap锁。
+
+		s.needzero = 1
+		lock(&h.lock)
+		*stat -= uint64(s.npages << _PageShift)
+		memstat.heap_sys += uint64(s.npages << _PageShift)
+		h.freeSpanLocked(s, false, true)
+		unlock(&h.lock)
+	
+	33 runtime (h *mheap) freeSpanLocked(s *mspan, acctinuse, acctidle)
+		switch s.state
+		case mSpanManual:
+
 		
 
 	32 runtime.spanOfUnchecked(p uintptr) *mspan 
@@ -955,8 +975,38 @@
 		
 		// Coalesce with earlier, latesr spans
 		var hpBefore uintptr
+		// 获取s前个mpsan: before，检查before的状态
 		if before := spanOf(s.base()-1); before != nil && before.state == mSpanFree {
+			// 如果s的回收状态==before的回收状态，则合并
+			if s.scavenged == before.scavenged {
+				hpBefore = before.hugePages()
+				merge(before, s, before)
+			} else {
+			// 重新调整(重新调整s和befefore的边界)
+				realign(before, s, before)
+			}	
+		}
+
+		// 现在检查下个span(地址更大)是否空闲和是否可以合并
+		var hpAfter uintptr
+		if after := spanOf(s.base()+s.npages*pageSize); after != nil && after.state == mSpanFree {
+			// s.base+s.npages*pageSize 是属于下个mspan的
+			if s.scavenged == after.scavenged {
+				hpAfter = after.hugePages()
+				merge(s, after, after)
+			} else {
+				realign(s, after, after)
+			}
+		}
+
+		// 如果s还没有将page归还给os并且 hugePages数量更多
+		if !s.scavenged && s.hugePages() > hpBefore+hpMiddle+hpAfter {
+			// 如果s已经增长以致它可能包含更多的huge page相比它和它现在合并的邻近mspan，则标记整个地区作为huge-page-backable
+			// 另外，在我们打碎huge pages(比如linux)的系统上，huge pages可能不支持s，因为它可能由许多底层的VMA组成。主要问题是
+			// 它可能导致对由大页面支持的空闲内存数量的估计不足，从而无法确定清楚速率。
 			
+			// 
+			sysHugePage(unsafe.Pointer(s.base(), s.npages*pageSize))
 		}
 
 
