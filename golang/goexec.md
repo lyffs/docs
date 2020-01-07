@@ -715,11 +715,43 @@
 		h.freeSpanLocked(s, false, true)
 		unlock(&h.lock)
 	
-	33 runtime (h *mheap) freeSpanLocked(s *mspan, acctinuse, acctidle)
-		switch s.state
+	33 runtime (h *mheap) freeSpanLocked(s *mspan, acctinuse, acctidle bool)
+		switch s.state {
 		case mSpanManual:
+			if s.allocCount != 0 {
+				throw("")
+			}
+		case mSpanInUse:
+			if s.allocCount != 0 || s.sweepgen != h.sweepgen {
+				throw("")
+			}
+			// mheap减去mspan page
+			h.pageInUse -= uint64(s.npages)
+			
+			arena, pageIdx, pageMask := pageIndexOf(s.base())
+			arena.pageInuse[pageIdx] &^= pageMask
+		default:
+			throw("")
+		}
 
-		
+		if acctinuse {
+			memstat.heap_inuse -= uint64(s.npages << _PageShift)
+		}
+		if acctidle {
+			memstat.heap_idle += uint64(s.npages << _PageShift)
+		}
+		s.state = mSpanFree
+
+		h.coalesce(s)
+
+		h.free.insert(s)
+
+	34 runtime pageIndexOf(p uintptr) (arena *heapArena, pageIdx uintptr pageMask uint8)
+		ai := arenaIndex(p)
+		arena = mheap_.arenas[ai.l1()][ai.l2()]
+		pageIdx = ((p / pageSize) / 8) % uintptr(len(arena.pageInUse))
+		pageMask = byte(1 << ((p / pageSize) % 8))
+
 
 	32 runtime.spanOfUnchecked(p uintptr) *mspan 
 		// 先通过指针p找出p所属的arena index，然后再通过mheap_.arenas的映射关系找到响应的mspan
