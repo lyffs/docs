@@ -975,8 +975,6 @@
 		end := start + s.npages*PageSize
 
 
-
-
 	38 runtime.stackfree(stk stack)
 		// go:systemstack
 		// stackfree释放stk上的n个字节stack申请。
