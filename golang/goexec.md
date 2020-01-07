@@ -952,6 +952,12 @@
 		}
 
 		hpMiddle := s.hugePages()
+		
+		// Coalesce with earlier, latesr spans
+		var hpBefore uintptr
+		if before := spanOf(s.base()-1); before != nil && before.state == mSpanFree {
+			
+		}
 
 
 		
@@ -973,6 +979,15 @@
 		}
 		start := s.base()
 		end := start + s.npages*PageSize
+		if physHugePageSize > pageSize {
+			// start对齐physHugePageSize
+			start = (start + physHugePageSize -1) &^ (physHugePageSize -1)
+			end &^ = physHugePageSize -1
+		}
+		if start < end {
+			return (end -start) >> physHugePageShift
+		}
+		return 0
 
 
 	38 runtime.stackfree(stk stack)
