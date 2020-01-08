@@ -464,7 +464,6 @@
 		mp.mstartfn = fn
 		mcommoninit(mp)
 
-		
 
 	25 runtime.acquirep(_p_ *p)
 		// 这部分的执行不允许写屏障
@@ -753,14 +752,14 @@
 		pageMask = byte(1 << ((p / pageSize) % 8))
 
 
-	32 runtime.spanOfUnchecked(p uintptr) *mspan 
+	35 runtime.spanOfUnchecked(p uintptr) *mspan 
 		// 先通过指针p找出p所属的arena index，然后再通过mheap_.arenas的映射关系找到响应的mspan
 		//go:nosplit
 		// spanOfUnchecked 等价于 spanOf，不过调用者必须确保指针p处于可申请的堆区域中。
 		ai := arenaIndex(p)
 		return mheap_.arens[ai.l1()][ai.l2()].spans[(p/pageSize)%pagesPerArena]
 
-	33 runtime.spanOf(p uintptr) *mspan
+	36 runtime.spanOf(p uintptr) *mspan
 		// spanOf返回p所属的span。如果p不是指向heap arena或者没有span包含指针p，spanOf返回nil
 		// 如果p不是指向已经申请的内存，有可能返回不包含p的non-nil的span。如果可能，调用者应该
 		// 调用spanOfHeap或者明确地检查span边界。
@@ -792,7 +791,7 @@
 		return ha.spans[(p/pagesize)%pagesPerArena]
 	
 
-	33 runtime.mheap
+	37 runtime.mheap
 		//go:noinheap
 		
 		// heap本身就是"free"和"scav"树堆，但是其他的全局数据也在这里。
@@ -942,7 +941,7 @@
 		// 从不设置，这里只是强制specailfinalizer类型为DWARF
 		unused *specialfinalizer
 
-	34 runtime (h *mheap) coalesce(s *mspan)
+	38 runtime (h *mheap) coalesce(s *mspan)
 		// 合并相邻mspan
 
 		// merge 是一个帮助器用来将其他合并到s，删除heap元数据中对这些的引用，然后丢弃他们。这些mspan必须与s相邻
@@ -1043,7 +1042,7 @@
 
 
 		
-	35 runtime (s *mSpan) hugePages() uintptr 
+	39 runtime (s *mSpan) hugePages() uintptr 
 		// physPageSize 是操作系统物理页字节大小，Mapping和unmapping操作都是
 		// 在多重物理页上完成的。
 		// physHugePageSize 是操作系统默认物理大页的字节大小，它的申请对于应用不是透明的
@@ -1072,7 +1071,7 @@
 		return 0
 
 
-	38 runtime.stackfree(stk stack)
+	40 runtime stackfree(stk stack)
 		// go:systemstack
 		// stackfree释放stk上的n个字节stack申请。
 		// stackfree必须运行在系统栈上因为它用P的资源和必须不能扩张stack
@@ -1141,6 +1140,8 @@
 				// 手动释放mspan:s
 				mheap_.freeManual(s, &memstats.stacks_inuse)
 			} else {
+				// 如果GC正在运行，我们不能将stack span返回给heap 因为它可能被当作a heap span重新使用。
+				// 同时它的状态改变会和GC发生竞争。取而代之的是将它添加到large stack cache。
 				log2npage := stacklog2(s.npages)
 				lock(&stackLarge.lock)
 				stackLarge.free[log2npage].insert(s)
@@ -1148,7 +1149,26 @@
 			}	
 		}
 
-	30 runtime.heapArena struct 
+	41 runtime stackcacherelease(c *mcache, order uint8)
+		//go:systemstack
+
+		if stackDebug >= 1 {
+			print("")
+		}
+		x := c.stackcache[order].list
+		size := c.stackcache[order].size
+		lock(&stackpoolmu)
+		for size > _StackCacheSize/2 {
+			y := x.ptr().next
+			stackpoolfree(x, order)	
+			x = y
+			size -= _FixedStack << order
+		}
+		unlock(&stackpoolmu)
+		c.stackcache[order].list = x
+		c.stackcache[order].size = size
+
+	42 runtime.heapArena struct 
 		// heapArena存储heap arena的数据单元。heapArenas储存在Go heap
 		// 之外，可以通过mheap_.arenas 索引访问。
 		// 它直接通过OS申请，所以理想情况下它应该是系统页的倍数。举例，避免添加小字段。
@@ -1175,10 +1195,204 @@
 		// 这只是用来快速查找这整个span可以释放。
 		// 
 		pageMarks [pagePerArena/8]uint8
+	
+	43 runtime mcommoninit(mp *m)
+		// m初始化
+		_g_ := getg()
 
+		// g0 stack对于用户来说没有意义
+		if _g_ != _g_.m.g0 {
+			callers(1, mp.createstack[:])
+		}
+		
+		lock(&sched.lock)
+		if sched.mnext+1 < sched.mnext {
+			throw("")
+		}
+		mp.id = sched.mnext
+		sched.mnext++
+		// 检查sched.maxmcount(msched允许的最大值)
+		checkmcount()
 
+		mp.fastrand[0] = 1597334677 * uint32(mp.id)
+		mp.fastrand[1] = uint32(cputicks)
+		// 检查mp.fastrand[0]和mp.fastrand[1]是否都为0
+		if mp.fastrand[0]|mp.fastrand[1] == 0 {
+			mp.fastrand[1] = 1
+		}
 
-	30 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
+		mpreinit(mp)
+
+	44 runtime mpreinit(mp *m)
+		mp.gsignal = malg(32 * 1024)
+		mp.gsignal.m = mp
+	
+	45 runtime malg(stacksize int32) *g
+		// 申请一个满足stacksize字节的栈的goroutine
+		
+		newg := new(g)
+		if stacksize >= 0 {
+			stacksize = round2(_StackSystem+stacksize)
+			systemstack(func() {
+				newg.stack = stackalloc(uint32(stacksize))	
+			})
+			newg.stackguard0 = newg.stack.lo + _StackGuard
+			newg.stackguard1 = ^uintptr(0)
+		}
+			
+		return newg
+	
+	46 runtime stackalloc(n uint32) stack 
+		//go:systemstack
+
+		// stackalloc 申请一个n字节stack
+		// stackalloc必须运行在系统栈因为它用per-P的资源同时必须不能分割栈。
+		// stackalloc必须在调用栈中执行，因此我们从不尝试扩展这个栈在代码stackalloc运行的期间
+		// 如果会导致死锁
+
+		thisg := getg()		
+		if thisg != this.m.g0 {
+			//不是运行在调度栈上
+			throw("")
+		}
+
+		if n&(n-1) != 0 {
+			// 栈的大小n 不是2的幂
+			thow("")
+		}
+		
+		if stackDebug >= 1 {
+			print("")
+		}
+
+		if debug.efence != 0 || stackFromSystem != 0 {
+			// n对齐physPageSize
+			n = uint32(round(uintptr(n), physPageSize))	
+			// 从系统申请内存地址，v是这块地址开始地址
+			v := sysAlloc(uintptr(n), &memstats.stacks_sys)
+			if v == nil {
+				throw("")
+			}
+			return stack{uintptr(v), uintptr(v)+uintptr(n)}
+		}
+
+		var v unsafe.Pointer
+		if n < _FixedStack<<_NumStackOrders && n < _StackCacheSize {
+			// 小stack通过一个固定大小，空闲列表的申请器申请。如果我们需要一个更大的stack，我们
+			// 依赖申请一个专用的span。
+			
+			order := uint8(0)
+			n2 := n
+			if n2 > _FixedStack {
+				order++
+				n2 >>= 1
+			}
+			var x gclinkptr
+			c := thisg.m.mcache
+			if stackNoCache != 0 || c == nil || thisg.m.preemptoff != "" {
+				// c == nil 可能发生在内部的退出系统调用或者procresize。只是从全局pool中
+				// 获取一个栈。另外在GC期间不能访问stackcache，因此是并发刷新。	
+				lock(&stackpoolmu)
+				x = stackpoolalloc(order)
+				unlock(&stackpoolmu)
+			} else {
+				x = c.ta
+			}
+		}
+
+	47 runtime sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer
+		p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)		
+		if err != nil {
+			if err == _EACCES {
+				print("")
+				exit(2)
+			}
+			if err == _EAGAIN {
+				print("")
+				exit(2)
+			}
+			return nil	
+		}
+		mSysStatInc(sysStat, n)
+		return p
+
+	48 runtime stackpoolalloc(order uint8) gclinkptr
+		// 从空闲池中申请一个stack，调用时必须持有stackpoolmu
+		list := &stackpool[order]
+		s := list.first
+		if s == nil {
+			// 无空闲stacks. 申请另一个有效的span
+			s = mheap_.allocManual(_StackCacheSize>>_PageShift, &memstat.stacks_inuse)
+			if s == nil {
+				throw("")
+			}
+			if s.allocCount != 0 {
+				throw("")
+			}
+			if s.manualFreeList.ptr() != nil {
+				throw("")
+			}
+			osStackAlloc(s)
+			s.elemsize = _FixedStack << order
+			for i := uintptr(0); i < _StackCacheSize; i += s.elemsize {
+				x := gclinkptr(s.base()+i)
+				x.ptr().next = s.manualFreeList
+				s.manualFreeList = x
+			} 
+			list.insert(s)
+		}
+
+	49 runtime (h *mheap) allocManual(npage uintptr, stat *uint64) *mspan
+			// allocManual 申请一个手动管理的由npage页组成的span，如果申请失败allocManual返回nil
+			// allocManual添加使用的字节到*stat，这是memstats in-use字段。不像在GC heap的申请，
+			// 这个申请不会计入heap_inuse或者heap_sys
+			// 如果span.needzero设置，返回的span中的memory可能不是零。
+			// allocManual 必须在系统栈中调用因此它需要heap锁。
+			lock(&h.lock) 
+			s := h.allocSpanLocked(npage, stat) 
+i			if s != nil {
+				s.state = mSpanManual
+				s.manualFreeList = 0
+				s.allocCount = 0
+				s.spanclass = 0
+				s.nelems = 0
+				s.limit = s.base() + s.npages<<_PageShift
+				// 手动管理的内存不计入heap_sys
+				memstats.heap_sys -= uint64(s.npages << _PageShift)
+			}
+
+			unlock(&h.lock)
+			return s
+	
+	50 runtime (h *mheap) allocSpanLocked(npage uintptr, stat *uint64) *mspan
+			// 申请一个给定大小的span。h必须被锁
+			// 返回的span已经在空闲结构中移除，但是它的状态依然是mSpanFree
+			t := h.free.find(npage)	
+			// 
+			if t.valid() {
+				goto HaveSpan
+			}
+
+			if !h.grow(npage) {
+				return nil
+			}
+			t = h.free.find(npage)
+			if t.valid() {
+				goto HaveSpan
+			}
+			throw("grew heap, but no adequate free span found")
+
+		HaveSpan:
+
+	51 runtime (h *mheap) grow(npage uintptr) bool
+			// 尝试添加最少npage页内存到heap，返回是否成功
+			ask := npage << _PageShift
+			nBase := round(h.curArena.base+ask, physPageSize)
+			if nBase > h.curArena.end {
+
+			}
+
+	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
 		_g_ := getg() //获取当前goroutine
@@ -1187,7 +1401,7 @@
 		_p_ := _g_.m.p.ptr() //返回PP指针
 		newg := gfget(_p_)
 
-	31 runtime.gfget(_p_ *p) *g
+	44 runtime.gfget(_p_ *p) *g
 		// 从g空闲列表中获取
 		// 如果本地列表是空，则从全局列表中获取一批
 
@@ -1236,7 +1450,7 @@
 
 		return gp
 
-	32 runtime.stackalloc(n uint32) stack
+	45 runtime.stackalloc(n uint32) stack
 		// 申请b个自己的栈
 		// stackalloc必须运行在系统栈上面因为它用每个P的资源，并且不能缩放堆栈。
 		// Stackalloc必须运行在scheduler栈，因为我们从不尝试在stackalloc运行的代码期间
