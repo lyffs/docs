@@ -1387,11 +1387,27 @@ i			if s != nil {
 	51 runtime (h *mheap) grow(npage uintptr) bool
 			// 尝试添加最少npage页内存到heap，返回是否成功
 			ask := npage << _PageShift
+			// 对齐物理页
 			nBase := round(h.curArena.base+ask, physPageSize)
 			if nBase > h.curArena.end {
-
+				// 在当前的arena没有足够的空间。申请更多的arena空间。
+				// 这可能会让当前arena不连续，所以我们必须请求完整ask
+			
+				av, size := h.sysAlloc(ask)
+				if av == nil {
+					print("")
+					return false
+				}	
+			
+				if uintptr(av) == h.curArena.end {
+					
+				}
 			}
 
+	52 runtime (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr)
+			//
+			n = round(n, heapAreanaBytes)		
+ 
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
