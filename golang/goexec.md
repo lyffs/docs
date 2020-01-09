@@ -1407,6 +1407,65 @@ i			if s != nil {
 	52 runtime (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr)
 			//
 			n = round(n, heapAreanaBytes)		
+
+			// 首先，尝试预保留arena
+			v = h.arena.alloc(n, heapAreanaBytes, &memstats.heap_sys)
+			if v != nil {
+				size = n
+				goto mapped
+			}
+
+			// 尝试在hint地址上扩张heap
+			for h.arenaHints != nil {
+				hint := h.arenaHints	
+				p := hint.addr
+				if hint.down {
+					p -= n
+				}
+				if p+n < p {
+					v = nil
+				} else if arenaIndex(p+n-1) >= 1<<arenaBits {
+					// 超过可访问的地址heap
+					v = nil
+				} else {
+					// 系统预留
+					v = sysReserve(unsafe.Pointer(p), n)
+				}
+				if p == uintptr(v) {
+					// 成功，更新hint
+					if !hint.down {
+						p+=n 
+					}
+					hint.addr = p
+					size = n
+					break
+				}
+				// 失败。丢弃这个hint和尝试下一个hint
+			}
+
+	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsaft.Pointer
+			// l.next对齐align
+			p := round(l.next, align)
+			if p+size > l.end {
+				return nil
+			}
+
+			l.next = p + size
+			// pEnd 对齐physPageSize
+			if pEnd := round(l.next-1, physPageSize); pEnd > l.mapped {
+				// 
+				sysMap(unsafe.Pointer(l.mapped), pEnd-l.mapped, sysStat)
+				sysUsed(unsafe.ponter(l.mapped), pEnd-l.mapped)	
+				l.mapped = pEnd
+			}
+			return unsafe.Pointer(p)
+
+	54 runtime sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer
+			p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP__PRIVATE, -1, 0)
+			if err != 0 {
+				return nil
+			}
+			return p
  
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
