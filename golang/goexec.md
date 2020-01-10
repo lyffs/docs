@@ -1515,9 +1515,17 @@ i			if s != nil {
 				}
 
 				if l2[ri.l2()] != nil {
+					throw("")
 				}
 
 				var r *heapArena
+				r = (*heapArena)(h.heapArenaAlloc.alloc(unsafe.Sizeof(*r)), sys.PtrSize, &memstats.gc_sys))
+				if r == nil {
+					r = (*heapArena)(persistentalloc)(unsafe.Sizeof(*r), sys.PtrSize, &memstats.gc_sys)
+					if r == nil {
+						throw("")
+					}
+				}
 			}
 
 	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsaft.Pointer
@@ -1585,6 +1593,13 @@ i			if s != nil {
 					}
 					return unsafe.Pointer(pAligned), size
 			}
+
+	46 runtime persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
+			var p *notInHeap
+			systemstack(func() {
+				p = persistentalloc1(size, align, sysStat)
+			})
+			return unsafe.Pointer(p)
 
  
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
