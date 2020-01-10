@@ -1405,8 +1405,38 @@ i			if s != nil {
 			}
 
 	52 runtime (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr)
-			//
+			// sysAlloc申请最少n字节的heap arena空间。返回的指针总是heapArenaBytes-aligned对齐和
+			// 依靠h.arenas metadata。返回的大小总是heapAreanaBytes多倍。sysAlloc失败时返回nil。
+			// 这没有相应的释放函数
+		
+			// sysAlloc返回处于Prepared状态的内存区域。该区域必须转换转换成Ready状态在使用之前。
+			// h必须上锁。
 			n = round(n, heapAreanaBytes)		
+
+			// 首先，尝试arena预先判断空间是否足够，不足则通过mmap申请
+			v = h.arena.alloc(n, heapArenaBytes, &memstats.heap_sys)
+			if v != nil {
+				size = n
+				goto mapped
+			}
+
+			
+	
+	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
+			// l.next对齐align
+			p := round(l.next, align)
+			if p+size > l.end {
+				return nil
+			}
+			l.next = p + size
+			// l.next-1对齐physPageSize
+			if pEnd := round(l.next-1, physPageSize); pEnd > l.mapped {
+				//如果申请的空间大于l申请的地址
+				sysMap(unsafe.Pointer(l.mapped), pEnd-l.mapped, sysStat)
+				sysUsed(unsafe.Pointer(l.mapped), pEnd-l.mapped)
+				l.mapped = pEnd
+			}
+			return unsafe.Pointer(p)
  
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
