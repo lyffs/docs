@@ -1414,29 +1414,178 @@ i			if s != nil {
 			n = round(n, heapAreanaBytes)		
 
 			// 首先，尝试arena预先判断空间是否足够，不足则通过mmap申请
-			v = h.arena.alloc(n, heapArenaBytes, &memstats.heap_sys)
+			v = h.arena.alloc(n, heapAreanaBytes, &memstats.heap_sys)
 			if v != nil {
 				size = n
 				goto mapped
 			}
-
-			
 	
-	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
+			// 尝试在hint地址上扩张heap
+			for h.arenaHints != nil {
+				hint := h.arenaHints	
+				p := hint.addr
+				if hint.down {
+					p -= n
+				}
+				if p+n < p {
+					v = nil
+				} else if arenaIndex(p+n-1) >= 1<<arenaBits {
+					// 超过可访问的地址heap
+					v = nil
+				} else {
+					// 系统预留
+					v = sysReserve(unsafe.Pointer(p), n)
+				}
+				if p == uintptr(v) {
+					// 成功，更新hint
+					if !hint.down {
+						p+=n 
+					}
+					hint.addr = p
+					size = n
+					break
+				}
+				// 失败。丢弃这个hint和尝试下一个hint
+				
+				if v != nil {
+					// 预释放
+					sysFree(v, n, nil)
+				}
+				// 指向下一个arenaHints
+				h.arenaHints = hint.next
+				h.arenaHintAlloc.free(unsafe.Pointer(hint))
+			}
+
+			if size == 0 {
+				if raceenabled {
+					// Race探测器猜测 heap地址范围[0x00c000000000，0x00e000000000]，但是我们
+					// 用完这个地区的hints。抛出错误
+					throw("")
+				}
+
+				// 所有的hints失败，所以我们获取内核分配给我们的的任何对齐地址
+				v, size = sysReserveAligned(nil, n, heapArenaBytes)
+				if v == nil {
+					return nil, 0
+				}
+
+				// 为扩展的区域创建新的hints
+				hint := (*arenaHint) (h.arenaHintAlloc.alloc())
+				hint.addr, hint.down = uintptr(v), true
+				hint.next, mheap_arenaHints = mheap_.arenaHints, hint
+				hint = (*arenaHint)(h.arenaHintAlloc.alloc())
+				hint.addr = uintptr(v) + size
+				hint.next, mheap_arenaHints = mheap_.arenaHints, hint
+			}
+
+			// 检查坏指针或者我们不能用的指针
+			{
+				var bad string
+				p := uintptr(v)
+				if p+size < - {
+					throw()
+				} else if arenaIndex(p) >= 1<<arenaBits {
+					throw()
+				} else if arenaIndex(p+size-1) >= 1<<arenaBits {
+					throw()
+				}
+			}
+
+			// 如果v和heapArenaBytes没有对齐
+			if uintptr(v) & (heapArenaBytes-1) != 0 {
+				throw()
+			}
+		
+			// 将预保留转化为准备
+			sysMap(v, size, &memstats.heap_sys)
+
+		mapped:
+			// 创建 arena metadata
+			// 设置每个>=ri且<ri+size-1
+			for ri := arenaIndex(uintptr(v)); ri <= arenaIdex(uintptr(v)+size-1); ri++ {
+				l2 := h.arenas[ri.l1()]
+				if l2 == nil {
+					// 申请一个L2 arena map
+					l2 = (*[1 << arenaL2Bits]*heapArena)(presistentalloc(unsafe.Sizeof(*l2), sys.PtrSize, nil))
+					if l2 == nil {
+						throw("")
+					}
+					// 设置
+					atomic.StorepNoWB(unsafe.Pointer(&h.arenas[ri.l1()]), unsafe.Pointer(l2))
+				}
+
+				if l2[ri.l2()] != nil {
+				}
+
+				var r *heapArena
+			}
+
+	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsaft.Pointer
 			// l.next对齐align
 			p := round(l.next, align)
 			if p+size > l.end {
 				return nil
 			}
+
 			l.next = p + size
-			// l.next-1对齐physPageSize
+			// pEnd 对齐physPageSize
 			if pEnd := round(l.next-1, physPageSize); pEnd > l.mapped {
-				//如果申请的空间大于l申请的地址
+				// 
 				sysMap(unsafe.Pointer(l.mapped), pEnd-l.mapped, sysStat)
-				sysUsed(unsafe.Pointer(l.mapped), pEnd-l.mapped)
+				sysUsed(unsafe.ponter(l.mapped), pEnd-l.mapped)	
 				l.mapped = pEnd
 			}
 			return unsafe.Pointer(p)
+
+	54 runtime sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer
+			p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP__PRIVATE, -1, 0)
+			if err != 0 {
+				return nil
+			}
+			return p
+
+	55 runtime sysReserveAligned(v unsafe.Pointer, size, align uintptr) (unsafe.Pointer, uintptr)
+			// sysReserverAligned 类似sysReserve，但是返回的指针是对齐 align字节的。他可能预申请n或者是
+			// n+align字节，所以它返回预申请的大小
+
+			// 在本函数调用中align可能相当大，我们不可能随机获得它，所以我们要求一个更大的地区和移除我们不需要的部分
+			
+			retries := 0
+		retry:
+			p := uintptr(sysReserve(v, size+align))
+			switch {
+				case p == 0:
+					return nil, 0
+				case p&(align-1) == 0
+					// 
+					return unsafe.Pointer(p), size+align
+				case GOOS == "windows"
+					//
+					sysFree(unsafe.Pointer(p), size+align, nil)
+					p = round(p, align)
+					p2 := sysReServe(unsafe.Pointer(p), size)
+					if p != uintptr(p2) {
+						sysFree(p2, size, nil)
+						if retries++; retries == 100 {
+							throw("")
+						}
+						goto retry
+					}
+					// 成功
+					return p2, size
+				default:
+					// p对齐align
+					pAligned := round(p, align)
+					// 释放多余的部分
+					sysFree(unsafe.Pointer(p), pAlign-p, nil)
+					end := pAligned+size
+					endLen := (p+size+align) - end
+					if endLen > 0 {
+						sysFree(unsafe.Pointer(end), endLen, nil)
+					}
+					return unsafe.Pointer(pAligned), size
+			}
+
  
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
