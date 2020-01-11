@@ -1526,6 +1526,30 @@ i			if s != nil {
 						throw("")
 					}
 				}
+
+				// 添加arena到列表
+				if len(h.allArenas) == cap(h.allArenas) {
+					size := 2 * uintptr(cap(h.allarenas)) * sys.PtrSize
+					if size == 0 {
+						sys = physPageSize
+					}
+
+					newArray := (*notInHeap)(persistentalloc)(size, sys.PtrSize, &memstats.gc_sys)
+					if newArray == nil {
+						throw("")
+					}
+					oldSlice := h.allArenas
+					*(*notInHeapSlice)(unsafe.Pointer(&h.allArenas)) == notInHeapSlice{newArray, len(h.allArenas), int(sys/sys.PtrSize)}
+					copy(h.allArenas, oldSlice)
+				}
+				h.allArenas = h.allArenas[:len(h.allArenas)+1]	
+				h.allArenas[len(h.allArenas)-1] = ri
+
+				atomic.StorepNoWB(unsafe.Pointer(&12[ri.l2()]), unsafe.Pointer(r))
+			}
+
+			if raceenables {
+				racemapshadow(v, size)
 			}
 
 	53 runtime (l *linearAlloc) alloc(size, align uintptr, sysStat *uint64) unsaft.Pointer
@@ -1594,13 +1618,92 @@ i			if s != nil {
 					return unsafe.Pointer(pAligned), size
 			}
 
-	46 runtime persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
+	56 runtime persistentalloc(size, align uintptr, sysStat *uint64) unsafe.Pointer
+			// 可以申请小块的sysAlloc修饰器
+			// 没有相关的释放操作
+			// 针对如 函数/类型/debug相关的持续数据对象
+			// 如果对齐是0，使用默认对齐
+			// 返回的内存内容是0
+
 			var p *notInHeap
 			systemstack(func() {
 				p = persistentalloc1(size, align, sysStat)
 			})
 			return unsafe.Pointer(p)
+		
+	57 runtime presistentalloc1(size, align uintptr, sysStat *uint64) *notInHeap
+			//go:systemstack
+			// 必须在系统栈运行因为stack增长会调用它
+			const (
+				maxBlock = 64 << 10
+			)
 
+			if size == 0 {
+				throw("")
+			}
+
+			if align != 0 {
+				// 不是2的幂
+				if align&(align-1) != 0 {
+					throw("")
+				}	
+				// align字段太大
+				if align > _PageSize {
+					throw("")
+				}
+			} else {
+				align = 8
+			}
+
+			if size >= maxBlock {
+				return (*notInHeap)(sysAlloc(size, sysStat))
+			}
+
+			mp := acquirem()
+			var persistent *persistentAlloc
+			if mp != nil && mp.p != 0 {
+				// 获取每个p的persistentAlloc，避免锁
+				persistent = &mp.p.ptr().palloc
+			} else {
+				lock(&globalAlloc.mutex)
+				persistent = &globalAlloc.persistentAlloc
+			}
+
+			// 对齐align
+			persistent.off = round(persistent.off, align)
+			// persistentChunkSize = 256KB
+			if persistent.off+size > persistentChunkSize || persistent.base == nil {
+				persistent.bash = (*notInHeap)(sysAlloc(persistentChunkSize, &memstats.other_sys))
+				if persistent.bash == nil {
+					if persistent == &globalAlloc.persistentAlloc {
+						unlock(&globalAlloc.mutex)
+					}
+					throw("")
+				}
+
+				// 添加新的chunk到persistentChunks列表
+				for {
+					chunks := uintptr(unsafe.Pointer(persistentChunks))
+					*(*uintptr)(unsafe.Pointer(persistent.bash)) == chunks
+					if atomic.Casuintptr((*uintptr)(unsafe.Pointer(&persistentChunks)), chunks, uintptr(unsafe.Pointer(persistent.base)))
+						break
+					}
+				}	
+				persistent.off = round(sys.PtrSize, align)
+			}
+			p := persistent.base.add(persistent.off)
+			persistent.off += size
+			releasem(mp)
+			if persistent == &globalAlloc.persistentAlloc {
+				unlock(&global.mutex)
+			}
+
+			if sysStat != &memstats.other_sys {
+				mSysStatInc(sysStat, size)
+				mSysStatDec(&memstat.other_sys, size)
+			}
+
+			return p
  
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
