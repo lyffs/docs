@@ -1545,6 +1545,7 @@ i			if s != nil {
 				h.allArenas = h.allArenas[:len(h.allArenas)+1]	
 				h.allArenas[len(h.allArenas)-1] = ri
 
+				// 原子性存储防止来自新堆的arena的对象变得有效在锁释放之前(这不可能发生，但是这是一个小缺点)
 				atomic.StorepNoWB(unsafe.Pointer(&12[ri.l2()]), unsafe.Pointer(r))
 			}
 
