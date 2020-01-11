@@ -1400,7 +1400,16 @@ i			if s != nil {
 				}	
 			
 				if uintptr(av) == h.curArena.end {
-					
+					// 新的地址空间和旧的地址空间是连续的，所以只是扩展当前空间。	
+					h.curArena.end = uintptr(av) + asize
+				} else {
+					// 新的地址空间不连续。跟踪当前保留的空间和切换到新的空间，这应该比较罕见。
+					if size := h.curArena.end - h.curArena.bash; size != 0 {
+						h.growAddSpan(unsafe.Pointer(h.curArena.bash), size)
+					}
+					// 切换到新的空间
+					h.curArena.base = uintptr(av)
+					h.curArena.end = uintptr(av) + asize
 				}
 			}
 
