@@ -1740,12 +1740,16 @@ i			if s != nil {
 
 			h.scavengeIfNeededLocked(size)
 			
+			// 通过mheap_.spanalloc申请mspan，初始化mspan
 			s := (*mspan)(h.spanalloc.alloc())
 			s.init(uintptr(v), size/pageSize)
 			h.setSpans(s.base(), s.npages, s)
 			s.state = mSpanFree
 
+			// [v, v+size) 总是处于Prepare状态。新的span必须标记为清除以至于申请者转换它为Ready状态当从新span申请时。
 			s.scavenged = true
+			// 这个span既是被释放和空闲，但是grow已经更新memstats。
+			// 合并附近的mspan如果可以的话。
 			h.coalesce(s)
 			h.free.insert(s)
 
