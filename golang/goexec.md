@@ -1411,7 +1411,23 @@ i			if s != nil {
 					h.curArena.base = uintptr(av)
 					h.curArena.end = uintptr(av) + asize
 				}
+
+				// 刚刚申请的内存计算在被释放和空闲，尽管还没有spans支持。
+				// 内存申请总是对齐大于physPageSize的heap arena 大小。 
+				// 所以直接添加到heap_released是安全的。合并，如果可能，在统计上总是正确的，因为s.base()必须
+				// 一个物理页边界。
+				memstats.heap_released += uint64(asize)
+				memstats.heap_idle += uint64(asize)
+	
+				// 重新计算nBase
+				nBase = round(h.curArena.bask+ask, physPageSize)
 			}
+
+			// 在当前arena增长
+			v := h.curArena.base
+			h.curArena.base = nBase
+			h.growAddSpan(unsafe.Pointer(v), nBase-v)
+			return true
 
 	52 runtime (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr)
 			// sysAlloc申请最少n字节的heap arena空间。返回的指针总是heapArenaBytes-aligned对齐和
@@ -1714,7 +1730,121 @@ i			if s != nil {
 			}
 
 			return p
- 
+
+	58 runtime (h *mheap) growAddSpan(v unsafe.Pointer, size uintptr)
+			// growAddSpan添加一个span当heap在[v, v+size)范围增长
+			// 这个memory必须处于Prepared状态(不是Ready状态)
+			//
+			// h必须locked
+			// 清楚一些页面来弥补我们申请的虚拟内存空间，但只是我们需要的时候
+
+			h.scavengeIfNeededLocked(size)
+			
+			s := (*mspan)(h.spanalloc.alloc())
+			s.init(uintptr(v), size/pageSize)
+			h.setSpans(s.base(), s.npages, s)
+			s.state = mSpanFree
+
+			s.scavenged = true
+			h.coalesce(s)
+			h.free.insert(s)
+
+	59 runtime (h *mheap) scavengeIfNeedLocked(size uintptr)
+			// scavengeIfNeededLocked 调用 scavengeLocked 如果我们现在超过scavenged目标用来阻止突变超过清理器
+
+			// r:堆保留的空间
+			if r := heapRetained(); r+uint64(size) > h.scavengeRetainedGoal {
+				todo := uint64(size)
+				if overage := r + uint64(size) - h.scavengeRetainedGoal; overage < todo {
+					todo = overage
+				}
+				h.scavengeLocked(uintptr(todo))
+			}
+
+	60 runtime (h *mheap) scavengeLocked(nbytes uintptr) uintptr
+			// scavengeLocked 清理空闲heap中等价于nbytes的spans 通过从拥有最高base地址的span开始，然后向下工作
+			// 它随后获取这些spans和将他们放置在scav
+
+			released := uintptr(0)
+			// 首先迭代拥有大页的spans，然后
+			const mask = treapIterScav | trepIterHuge
+			for _, match := range []treapIterType{treapIterHuge, 0} {
+				for t := h.free.end(mask, match); release < nbytes && t.valid(); {
+					s := t.span()
+					// 获取s的物理页边界
+					start, end := s.physPageBounds()
+					if start >= end {
+						// 这个span没有覆盖至少一个物理页，跳过
+						t = t.prev()
+						continue
+					}
+
+					n := t.prev()
+					if span := h.scavengeSplit(t, nbytes-released); span != nil {
+						s = span
+					} else {
+						h.free.erase(t)
+					}
+					
+				}
+			}
+
+			return released
+
+	61 runtime (s *mspan) physPageBounds() (uintptr, uinptr)
+			start := s.base()
+			end := start + s.npages<<_PageShift
+			if physPageSize > _PageSize {
+				start = (start + physPageSize-1) &^ (physPageSize -1)
+				end &^ = physPageSize -1
+			}
+			return start, end
+
+	62 runtime (s *mheap) scavengeSplit(t treapIter, size uintptr) *mspan
+			// 清理中切割
+			// scavengeSplit 执行t.span()然后尝试拆分一个大小等价于物理页的span。
+
+			// 拆分点只是通过size定义由于分割点每次是对齐于physPagesize和pageSize。如果physHugePageSize是非零然后分割点将span中的一个大页分开，接着分割点也对齐到physHugePageSize。
+
+			// 如果期望的分割点结束于s的base，或者如果size明显大于s，接着分割是不可能的那这个奋发返回nil。否则如果分割发生，它会返回一个新的span。
+			s := t.span()
+			start, end := s.physPageBounds()
+			if end <= start || end-start <= size {
+				return nil
+			}
+		
+			// span比我们需要的大，所以计算新的span的base如果我们决定切割。
+			base := end - size
+			// 对齐下个物理页或者逻辑页，看那个更大
+			base &^ = (physPageSize-1) | (pageSize-1)
+			if base <= start {
+				return nil
+			}
+			if physHugePageSize >= pageSize && base&^(phyHugePage-1) >= start {
+				// 我们处于分开一个大业的危险中，所以在边界上通过向下对齐大页 包含整个大页。base应该仍然对齐pageSize
+				base &^= physHugePageSize -1
+			}
+			if base == start {
+				return nil
+			}
+			if base < start {
+				throw("")
+			}
+
+			// 从mheap_.spanalloc申请内存
+			n := (*mspan)(h.spanalloc.alloc())
+			nbytes := s.base() + s.npages*pageSize - base
+			h.free.mutate(t, func(s *mspan) {
+				n.init(base, nbytes/pageSize)
+				s.npages -= nbytes/pageSize
+				h.setSpan(n.base()-1, s)
+				h.setSpan(n.base(), n)
+				h.setSpan(n.base()+bytes-1, n)
+				n.needzero = s.needzero
+				n.state = s.state
+			})
+			return n
+		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
