@@ -1332,15 +1332,23 @@
 			if s.manualFreeList.ptr() != nil {
 				throw("")
 			}
+
+			// osStackAlloc执行操作系统指定的初始化工作在s作为stack 内存使用之前
 			osStackAlloc(s)
+			// 元素类型大小为 _FixedStack<<order
 			s.elemsize = _FixedStack << order
+
 			for i := uintptr(0); i < _StackCacheSize; i += s.elemsize {
+				// 构建空闲链表
 				x := gclinkptr(s.base()+i)
 				x.ptr().next = s.manualFreeList
 				s.manualFreeList = x
 			} 
+			// 插入到相应的mSpanList
 			list.insert(s)
 		}
+
+		x := s.manualFreeList
 
 	49 runtime (h *mheap) allocManual(npage uintptr, stat *uint64) *mspan
 			// allocManual 申请一个手动管理的由npage页组成的span，如果申请失败allocManual返回nil
@@ -1349,6 +1357,7 @@
 			// 如果span.needzero设置，返回的span中的memory可能不是零。
 			// allocManual 必须在系统栈中调用因此它需要heap锁。
 			lock(&h.lock) 
+			// 从mheap_.free堆树申请
 			s := h.allocSpanLocked(npage, stat) 
 i			if s != nil {
 				s.state = mSpanManual
@@ -1373,9 +1382,11 @@ i			if s != nil {
 				goto HaveSpan
 			}
 
+			// 在mheap.free列表中添加npages的mspan
 			if !h.grow(npage) {
 				return nil
 			}
+			// 再次寻找
 			t = h.free.find(npage)
 			if t.valid() {
 				goto HaveSpan
@@ -1383,6 +1394,66 @@ i			if s != nil {
 			throw("grew heap, but no adequate free span found")
 
 		HaveSpan:
+			// 获取mspan
+			s := t.span()
+			// 如果mspan的状态不为mspanFree，则throw
+			if s.state != mSpanFree {
+				// 用于申请的候选mspan不是空闲状态
+				throw("")
+			}
+			
+			// 首先，从s中减去已经释放给回操作系统的内存。如果需要我们将会加回剩下的
+			// memstats.heap_released减去mspan释放的内存？
+			memstats.heap_released -= uint64(s.released())	
+
+			if s.npages == npage {
+				// mheap_.free 剔除 mspan:t
+				h.free.erase(t)
+			} else if s.npages >= npage {
+				//
+				n := (*mspan)(h.spanalloc.alloc())
+				h.free.mutate(t, func(s *mspan) {
+					n.init(s.base(), npage)
+					s.npages -= npage
+					s.startAddr = s.base()+npage*pageSize
+					h.setSpan(s.base()-1, n)
+					h.setSpan(s.base, s)
+					h.setSpan(n.base, n)
+					n.needzero = s.needzero
+					n.scavenged = s.scavenged
+					if s.scavenged {
+						start, end := s.physPageBounds()
+						if start < end {
+							memstats.heap_released += uint64(end-start)
+						} else {
+							s.scavenged = false
+						}
+					}
+				})
+				s = n
+			} else {
+				// too small
+				throw()
+			}
+
+			if s.scavenged {
+				// sysUsed 在span中有效的所有页。注意我们不需要heap_released减去相应量因为我们之前就已经做了。
+				sysUsed(unsafe.Pointer(s.base()), s.npages<<_PageShift)
+				s.scavenged = false
+			}
+
+			// 范围设置s.base
+			h.setSpans(s.base(), npage, s)
+
+			*stat += uint64(npage << _PageShift)
+			memstats.heap_idle -= uint64(npage<<_PageShift)
+
+			if s.inList() {
+				// in list
+				throw("")
+			}
+
+			return s
 
 	51 runtime (h *mheap) grow(npage uintptr) bool
 			// 尝试添加最少npage页内存到heap，返回是否成功
@@ -1848,6 +1919,15 @@ i			if s != nil {
 				n.state = s.state
 			})
 			return n
+
+	63 runtime (s *mspan) released() uintptr
+			// 释放返回span中返回给OS的字节数
+			if !s.scavenged {
+				return 0
+			}
+			// 获取对齐物理页的mspan的start地址和end地址
+			start, end := s.physPageBounds()
+			return end - start
 		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
