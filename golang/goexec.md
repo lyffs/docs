@@ -1296,7 +1296,13 @@
 				x = stackpoolalloc(order)
 				unlock(&stackpoolmu)
 			} else {
-				x = c.ta
+				x = c.stackcache[order].list
+				if x.ptr() == nil {
+					stackcacherefill(c, order)
+					x = c.stackcache[order].list
+				}
+				c.stackcache[order].list = x.ptr().next
+				c.stackcache[order].size -= uintptr(n)
 			}
 		}
 
@@ -1349,6 +1355,17 @@
 		}
 
 		x := s.manualFreeList
+		if x.ptr() == nil {
+			throw("")
+		}
+
+		s.manualFreeList = x.ptr().next
+		s.allocCount++
+		if s.manualFreeList.ptr() == nil {
+			// mspan中的所有stacks已被申请
+			list.remove(s)
+		}
+		return x
 
 	49 runtime (h *mheap) allocManual(npage uintptr, stat *uint64) *mspan
 			// allocManual 申请一个手动管理的由npage页组成的span，如果申请失败allocManual返回nil
@@ -1928,6 +1945,20 @@ i			if s != nil {
 			// 获取对齐物理页的mspan的start地址和end地址
 			start, end := s.physPageBounds()
 			return end - start
+
+	64 runtime stackcacherefill(c *mcache, order uint8)
+			//go:systemstack
+			
+			// stackcacherefill/stackcacherelease实现一个全局栈帧池。这个全局池要求用来
+			// 阻止per-thread caches无限制的增长。
+
+			if stackDebug >= 1 {
+				print("")
+			}
+
+			//
+			var list gclinkptr
+			var size uintptr
 		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
