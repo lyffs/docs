@@ -424,6 +424,27 @@
 		// 运行的时候m.p可能为nil，所以不允许写屏障
 
 		mp := allocm(_p_, fn)
+		mp.nextp.set(_p_)
+		mp.sigmask = initSigmask
+		if gp := getg(); gp != nil && gp.m != nil && (gp.m.lockedExit != 0 || gp.m.incgo) && GOOS != "plan9" {
+			// 我们处于一个上锁的M或者是一个已经启动的C线程。这个线程的内核状态可能很奇怪(用户可能因为处于这个目的锁住它)
+			// 我们不希望克隆它到另外的线程中。取而代之的是，要求一个好的的线程为我们创建线程。
+			lock(&newmHandoff.lock)
+			if newmHandoff.haveTemplateThread == 0 {
+				throw("")
+			}
+
+			mp.schedlink = newmHandoff.newm
+			newmHandoff.newm.set(mp)
+			if newmHandoff.waiting {
+				newmHandoff.waiting = false
+				notewakeup(&newmHandoff.wake)
+			}
+			unlock(&newmHandoff.lock)
+			return
+		}
+		
+		newm1(mp)
 
 
 	24 runtime.allocm(_p_ *p, fn func()) *m
@@ -462,8 +483,24 @@
 		
 		mp := new(m)
 		mp.mstartfn = fn
+		// 对mp 线程进行初始化，主要是对mp.gsignal设置
 		mcommoninit(mp)
 
+		if iscgo || GOOS == "solaris" || GOOS == "illumos" || GOOS == "windows" || GOOS == "plan9" || GOOS == "darwin" {
+			// 初始化 mp.g0,其g0.stack为空
+			mp.g0 = malg(-1)
+		} else {
+			// 初始化 mp.g0
+			mp.g0 = malg(8192 * sys.StackGuardMultiplier)
+		}
+		mp.g0.m = mp
+
+		if _p_ == _g_.m.p.ptr() {
+			releasep()
+		}
+		releasem(_g_.m)
+		
+		return mp
 
 	25 runtime.acquirep(_p_ *p)
 		// 这部分的执行不允许写屏障
@@ -1221,10 +1258,30 @@
 			mp.fastrand[1] = 1
 		}
 
+		// 初始化mp的gsignal
 		mpreinit(mp)
+		if mp.gsignal != nil {
+			mp.gsignal.stackguard1 = mp.gsignal.stack.lo + _StackGuard
+		}
+
+		// 添加allm所以garbage collector不会释放g->m当它只是在寄存器或者线程本地存储
+		mp.alllink = allm
+
+		atomicstorep(unsafe.Pointer(&allm), unsafe.Pointer(mp))
+		unlock(&sched.lock)
+
+		if iscgo || GOOS == "solaris" || GOOS == "illmos" || GOOS == "windows" {
+			mp.cgoCallers = new(cgoCallers)
+		}
+	
 
 	44 runtime mpreinit(mp *m)
+		// 调用它来初始化一个新创建的m(包括bootstrap m)
+		// 在父协程中调用它(main thread在bootstrap情况下),可能申请内存
+
+		// mp.gsignal = 新申请的协程
 		mp.gsignal = malg(32 * 1024)
+		// gsignal的m = 原来的线程
 		mp.gsignal.m = mp
 	
 	45 runtime malg(stacksize int32) *g
@@ -1304,7 +1361,47 @@
 				c.stackcache[order].list = x.ptr().next
 				c.stackcache[order].size -= uintptr(n)
 			}
+
+			v = unsafe.Pointer(x)
+		} else {
+			var s *mspan
+			npage := uintptr(n) >> _PageShift
+			log2npage := stacklog2(npage)
+
+			// 尝试从large stack cache中获取一个stack
+			lock(&stackLarge.lock)
+			if !stackLarge.free[log2npage].isEmpty() {
+				// 判断stackLarge 空闲mspanList是否为空
+				s = stackLarge.Free[log2npage].first
+				stackLarge.free[log2npage].remove(s)
+			}
+			unlock(&stackLarge.lock)
+
+			if s == nil {
+				// 从heap申请一个新的stack
+				s = mheap_.allocManual(npage, &memstats.stacks_inuse)
+				if s == nil {
+					throw("")
+				}
+				osStackAlloc(s)
+				s.elemsize = uintptr(n)
+			}
+			v = unsafe.Pointer(s.base())
 		}
+
+		if raceenabled {
+			racemalloc(v, uintptr(n))
+		}
+		
+		if msanenabled {
+			msanmalloc(v, uintptr(n))
+		}
+
+		if stackDebug >= 1 {
+			print("")
+		}
+
+		return stack{uintptr(v), uintptr(v)+uintptr(n)}
 
 	47 runtime sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer
 		p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)		
@@ -1956,9 +2053,138 @@ i			if s != nil {
 				print("")
 			}
 
-			//
+			// 从全局cache中获取一些stacks
+			// 抓取允许容量的一半
 			var list gclinkptr
 			var size uintptr
+			lock(&stackpoolmu)
+			for size < _StackCache/2 {
+				x := stackpoolalloc(order)
+				x.ptr().next = list
+				list = x
+				size += _FixedStack << order
+			}
+			unlock(&stackpoolmu)
+			c.stackcache[order].list = list
+			c.stackcache[order].size = size
+
+	65 runtime release(mp *m) 
+			// 获取当前协程 g
+			_g_ := getg()
+			mp.locks--
+			if mp.locks == 0 && _g_.preempt {
+				// 在我们在新栈已经清除它的情况下重新存储抢占请求
+				_g_.stackguard0 = stackPreempt
+			}
+
+	66 runtime newm1(mp *m)
+			if iscgo {
+				var ts cgothreadstart
+				if _cgo_thread_start == nil {
+					throw("")
+				}	
+				ts.g.set(mp.g0)
+				ts.tls = (*uint64)(unsafe.Pointer(&mp.tls[0]))
+				ts.fn = unsafe.Pointer(funcPC(mstart))
+				if msanenabled {
+					msanwrite(unsafe.Pointer(&ts), unsafe.Sizeof(ts))
+				}
+				// 阻止进程克隆
+				execLock.rlock()
+				asmcgocall(_cgo_thread_start, unsafe.Pointer(&ts))
+				execlock.runlock()
+				return 
+			}
+
+			// 阻止进程克隆
+			execLock.rlock()
+			newosproc(mp)
+			execLock.runlock()
+
+	67 runtime mstart()
+			//go:nosplit
+			//go:nowritebarrierrec
+
+			// mstart作为新的Ms的入口点
+			// 不能分裂stack因为我们还没有设置stack边界
+			// 在STM期间可能运行(因为还没有拥有P)，所以写屏障不允许
+
+			// 获取当前协程_g_
+			_g_ := getg()
+		
+			osStack := _g_.stack.lo == 0
+			if osStack {
+				// 从系统栈初始化栈边界
+				// Cgo可能在stack.hi中留下栈大小
+				// minit可能更新stack边界
+
+				size := _g_.stack.hi
+				if size == 0 {
+					size = 8192  * sys.StackGuardMultiplier
+				}
+				_g_.stack.hi = uintptr()
+				_g_.stack.lo = _g_.stack.hi - size + 1024
+			}
+
+			// 初始化stack guard所以我们可以开始调用常规的go代码
+			_g_.stackguard0 = _g_.stack.lo + _StackGuard
+			// 这个是g0，所以我们也可以调用 go:systemstack函数，它回检查stackguard1
+			_g_.stackguard1 = _g_.stackguard0
+			mstart1()
+
+			// 退出这个线程
+			if GOOS == "windows" || GOOS == "solaris" || GOOS == "illumos" || GOOS == "plan9" || GOOS == "darwin" || GOOS == "aix" {
+				// Windows，Solaris，illumos，Darwin，AIX and Plan 9 总是系统-申请 的stack，但是在mstart之前将它放在_g_.stack中，所以以上的逻辑目前为止还没有设置osStack 
+				osStack = true
+			}
+			mexit(true)
+
+	69 runtime mstart1() 
+			// 获取当前协程_g_
+			_g_ := getg()
+			if _g_ != _g_.m.g0 {
+				throw()
+			}	
+
+			// 记录调用者用于在mcall中用为top stack和终止线程。
+			// 在我们调用schedule之后我们从不返回到mstart1，所以其他的调用可以复用当前帧
+			save(getcallerpc(), getcallersp())
+			asminit()
+			minit()
+
+	70 runtime save(pc, sp uintptr)
+			//go:nospilt
+			//go:nowritebarrierrec
+			_g_ := getg()
+		
+			_g_.sched.pc = pc
+			_g_.sched.sp = sp
+			_g_.sched.lr = 0
+			_g_.sched.ret = 0
+			_g_.sched.g = guintptr(unsafe.Pointer(_g_))
+			
+			if _g_.sched.ctxt != nil {
+				badctxt()
+			}
+
+	80 runtime type gobuf struct
+			// sp，sp 和g的偏移量 ard known to (hard-coded in)libmach
+			//
+			// ctxt
+			sp uintptr
+			pc uintptr
+			g guintptr
+			ctxt unsafe.Pointer
+			ret sys.Uintreg
+			lr uintptr
+			bp uintptr
+
+	81 runtime mint()
+			// 初始化一个新的m(包括bootstrap m)
+			// 在新的协程上调用，不能申请内存	
+			minitSignals()
+			
+			getg().m.procid = uint64(gettid())
 		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
