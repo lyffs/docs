@@ -2139,7 +2139,7 @@ i			if s != nil {
 			}
 			mexit(true)
 
-	69 runtime mstart1() 
+	68 runtime mstart1() 
 			// 获取当前协程_g_
 			_g_ := getg()
 			if _g_ != _g_.m.g0 {
@@ -2152,7 +2152,7 @@ i			if s != nil {
 			asminit()
 			minit()
 
-	70 runtime save(pc, sp uintptr)
+	69 runtime save(pc, sp uintptr)
 			//go:nospilt
 			//go:nowritebarrierrec
 			_g_ := getg()
@@ -2167,7 +2167,7 @@ i			if s != nil {
 				badctxt()
 			}
 
-	80 runtime type gobuf struct
+	70 runtime type gobuf struct
 			// sp，sp 和g的偏移量 ard known to (hard-coded in)libmach
 			//
 			// ctxt
@@ -2179,12 +2179,23 @@ i			if s != nil {
 			lr uintptr
 			bp uintptr
 
-	81 runtime mint()
+	71 runtime mint()
 			// 初始化一个新的m(包括bootstrap m)
 			// 在新的协程上调用，不能申请内存	
 			minitSignals()
 			
 			getg().m.procid = uint64(gettid())
+
+	72 runtime minitSignals()
+			// 当初始化一个新m时调用minitSignals来设置线程可供选择的signal stack和signal mask
+			minitSignalStack()
+			minitSignalMask()
+
+	73 runtime minitSignalStack()
+			_g_ := getg()
+			var st stackt
+			
+			
 		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
