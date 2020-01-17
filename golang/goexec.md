@@ -2151,6 +2151,11 @@ i			if s != nil {
 			save(getcallerpc(), getcallersp())
 			asminit()
 			minit()
+			
+			// 安装信号控制器；在minit之后minit可以让线程准备可以控制信息
+			if _g_.m == &m0 {
+				mstartm0()
+			}
 
 	69 runtime save(pc, sp uintptr)
 			//go:nospilt
@@ -2179,7 +2184,7 @@ i			if s != nil {
 			lr uintptr
 			bp uintptr
 
-	71 runtime mint()
+	71 runtime minit()
 			// 初始化一个新的m(包括bootstrap m)
 			// 在新的协程上调用，不能申请内存	
 			minitSignals()
@@ -2192,10 +2197,116 @@ i			if s != nil {
 			minitSignalMask()
 
 	73 runtime minitSignalStack()
+			// 当初始化一个新的m时调用minitSignalStack来设置可供选择的signal stack。如果可供选择 signal stack不是为这个协程(通常场景)，则设置这个可选择的signal stack为gsignal stack。如果这个可选择的signal stack为这个线程设置(这个场景时当一个非go 线程设置这个可选择的signal stack然后调用一个go函数) 然后设置这个gsignal为这可选择signal stack。记录在newSigStack中作出的选择，这样就能一蹴而就。
+			//
+
 			_g_ := getg()
 			var st stackt
-			
-			
+			signalstack(nil, &t)
+			if st.ss_flags&&_SS_DISABLE != 0 {
+				signalstack(&_g_.m.gsignal.stack)
+				_g_.m.newSigstack = true
+			} else {
+				setGsignalStack(&st, &_g_.m.goSigStack)
+				_g_.m.newSigstack = false
+			}
+		
+	74 runtime mstartm0
+			//go:yeswritebarrierrec
+			// mstartm0实现了只在m0运行的mstart1的部分
+			// 在线程上为callbacks创建一个额外的M 而不是通过Go来创建。在Windows上为callbacks 一个额外M另外也需要通过syscall.NewCallback创建。
+			if (iscgo || GOOS == "windows") && !cgoHasExtraM {
+				cgoHasExtraM = true
+				newextram()
+			}
+			initsig(false)
+		
+
+	75 runtime initsig(preinit bool)
+		//go:nosplit
+		//go:nowritebarriesrrec
+
+		// 初始化 signals
+		// 通过libpreinit调用所以runtime可能还没有初始化
+o
+		if !preinit {
+			// 现在运行signal handlers没有问题
+			signalsOK = true
+		}
+
+		//
+		if (isarchive || islibrary) && !preinit {
+			return
+		}
+
+		for i := uint32(0); i < _NSIG; i++ {
+			t := &sigtable[i]
+			if t.flags == 0 || t.flags&_SigDefault != 0 {
+				continue
+			}
+
+			// 我们不需要使用原子操作因为到目前为止还没有任何goroutine
+			fwdSig[i] == getsig[i]
+
+			if !sigInstallGoHandler(i) {
+			}
+		}
+
+	76 runtime getsig(i uint32) uintptr
+		//go:nosplit
+		//go:nowritebarrierrec
+
+		var sa sigactiont
+		sigaction(i, nil, &sa)
+		return sa.sa_handler
+
+	77 runtime sigaction(sig uint32, new, old *sigactiont)
+		//go:nosplit
+		//go:nowritebarrierrec
+
+		if msanenabled && new != nil {
+			msanwrite(unsafe.Pointer(new), unsafe.Sizeof(*new))
+		}
+
+		if _cgo_sigaction == nil || inForkedChild {
+			sysSigaction(sig, new, old)
+		} else {
+			// 我们需要调用_cgo_sigaction，这就意味着我们需要一个足够大的C栈。更糟糕的是，我们可能处于libpreinit(在runtime初始化之前)或者在一个异步信号处理控制器中。(当前线程在goroutine之前切换)，g0系统栈已经在使用中。
+
+			var ret int32
+			var g *g
+			if mainStarted {
+				// 主线程已经开始
+				g = getg()
+			}
+
+			sp := uintptr(unsafe.Pointer(&sig))
+			switch {
+				case g == nil :
+					// No g: 我们在C栈或者信号栈
+					ret = callCgoSigaction(uintptr(sig), new, old)
+				case sp < g.stack.lo || sp >= g.stack.hi:
+					// 我们不再处于g'stack中，所以我们必须正在处理信号。可能我们中断在g和g0之间切换的线程，所以我们应该停留在当前stack以避免
+					ret = callCgoSigaction(uintptr(sig, new, old)
+				default:
+					// 我们正在g's stack上运行，所以要么我们不在信号控制器中，要么这个信号控制器已经设置g。如果我们运行在gsignal或者g0，systemstack将会直接调用。否则，它将切换到g0来确保我们有足够的空间来调用libc函数
+
+					// 这个我们传给systemstack的函数迭代器不会分裂，但是这没有问题。我们将会在刷新，干净的系统栈运行所以栈检查总会成功。
+					systemstack(func() {
+						ret = callCgoSigaction(uintptr(sig), new, old)
+					})
+			}
+
+			const EINVAL = 22
+			if ret == EINVAL {
+				sysSigaction(sig, new, old)
+			}
+		}
+
+		if msanenabled && old != nil {
+			msanread(unsafe.Pointer(old), unsafe.Sizeof(*old))
+		}
+
 		
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
