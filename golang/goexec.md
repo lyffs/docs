@@ -2248,8 +2248,19 @@ o
 			// 我们不需要使用原子操作因为到目前为止还没有任何goroutine
 			fwdSig[i] == getsig[i]
 
+			// 是否需要安装信号控制器
 			if !sigInstallGoHandler(i) {
+				// 尽管我们没有安装一个信号控制器，如果需要设置SA_ONSTACK
+				if fwdSig[i] != _SIG_DFL && fwdSig[i] != _SIG_IGN  {
+					setsigstack(i)
+				} else if fwdSig[i] == _SIG_IGN {
+					sigInitIgnored(i)
+				}
+				continue
 			}
+			
+			handlingSig[i] = 1
+			setsig(i, funcPC(sighandler))
 		}
 
 	76 runtime getsig(i uint32) uintptr
@@ -2307,7 +2318,33 @@ o
 			msanread(unsafe.Pointer(old), unsafe.Sizeof(*old))
 		}
 
-		
+	78 runtime sigInstallGoHandler(sig uint32) bool
+		//go:nosplit
+		//go:nowritebarrierrec
+
+		// 对于一些信号，我们更注重一个继承SIG_IGN控制器而不是坚持我们默认的控制器。尽管这些信号可以通过使用os/signal包来获得。
+
+		switch sig {
+		case _SIGHUP, _SIGINT:
+			if atomic.Loaduintptr(&fwdSig[sig]) == _SIG_IGN {
+				return false
+			}
+		}
+
+		t := &sigtable[sig]
+		if t.flags&_SigSetStack != 0 {
+			return false
+		}
+
+		// 当使用c-archive或者c-shared构建时，对于异步信号和SIGPIPE只有安装信号控制器
+		if (isarchive || islibrary) && t.flags&_SigPanic == 0 && sig != _sigPIPE {
+			return false
+		}
+	
+		return true
+
+	79 runtime setsigstack(i)
+
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
 		// 新的g被放到等待运行的g队列中。
