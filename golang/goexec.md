@@ -2406,6 +2406,23 @@ o
 			return 
 		}
 
+		// 没有本地工作，检查是否由空闲或者自旋的M,否则不需要我们的帮助
+		if atomic.Load(&sched.nmspinning) + atomic.Load(&sched.npidle) == 0 && atomic.Cas(&sched.nmspinning, 0, 1) {
+			startm(_p_, true)
+			return
+		}
+
+		lock(&sched.lock)
+		if sched.gcwaiting != 0 {
+			_p_.status = _pgcstop
+			sched.stopwait--
+			if sched.stopwait == 0 {
+				notewakeup(&sched.stopnote)
+			}
+			unlock(&sched.lock)
+			return
+		}
+
 	83 runtime runqempty(_p_ *p) bool
 		// runqempty 获取_p_在它的本地运行队列是否有G。
 		// 它永远不会虚假的返回true
@@ -2490,3 +2507,5 @@ o
 	https://docs.oracle.com/cd/E19205-01/820-1200/blaoy/index.html
 	https://blog.csdn.net/u010853261/article/details/103359762
 	https://me.csdn.net/u010853261	
+	http://man7.org/linux/man-pages/man7/futex.7.html
+	https://github.com/golang/proposal/blob/master/design/35112-scaling-the-page-allocator.md
