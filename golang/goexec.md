@@ -2157,6 +2157,17 @@ i			if s != nil {
 				mstartm0()
 			}
 
+			if fn := _g_.m.mstartfn; fn != nil {
+				// 运行fn函数
+				fn()
+			}
+
+			if _g_.m != &m0 {
+				acquirep(_g_.m.nextp.ptr())
+				_g_.m.nextp = 0
+			}
+			schedule()
+
 	69 runtime save(pc, sp uintptr)
 			//go:nospilt
 			//go:nowritebarrierrec
@@ -2344,6 +2355,71 @@ o
 		return true
 
 	79 runtime setsigstack(i)
+		var sa sigactiont
+		sigaction(i, nil, &sa)
+		if sa.sa_flags&_SA_ONSTACK != 0 {
+			return 
+		}
+		sa.sa_flags |= _SA_ONSTACK
+		sigaction(i, &sa, nil)
+
+	80 runtime schedule()
+		// scheduler运行一次：寻找一个可以执行goroutine并且执行它。从不返回
+		_g_ := getg()
+
+		if _g_.m.locks != 0 {
+			throw("schedule: holding locks")
+		}
+
+		if _g_.m.lockedg != 0 {
+			stoplockedm()
+			execute(_g_.m.lockedg.ptr(), false)
+		}
+
+	81 runtime stoplockedm()
+		// 停止由g锁定的当前m的执行，直到g可以再次可运行。
+		_g_ := getg()
+		
+		if _g_.m.lockedg == 0 || _g_.m.lockedg.ptr() != _g_.m {
+			throw("")
+		}
+
+		if _g_.m.p != 0 {
+			// 调度另外一个M来运行这个P
+			_p_ := releasep()
+			headoffp(_p_)
+		}
+
+	82 runtime handoffp(_p_ *p)
+		// 通过syscall或者locked M挂起P
+		// handoffp必须在任何findrunnable返回一个G用来在_p_上运行的场景下启动一个M
+		
+		// 如果它有本地工作，直接启动它
+		if !runqempty(_p_) || shed.runqsize != 0 {
+			startm(_p_, false)
+			return
+		}
+
+		// 如果它由GC工作，直接启动它
+		if gcBlackenEnabled != 0 && gcMarkWrokavailable(_p_) {
+			startm(_p_, false)
+			return 
+		}
+
+	83 runtime runqempty(_p_ *p) bool
+		// runqempty 获取_p_在它的本地运行队列是否有G。
+		// 它永远不会虚假的返回true
+
+		for {
+			head := atomic.Load(&_p_.runqhead)
+			tail := atomic.Load(&_p_.runqtail)
+			runnext := atomic.Loaduintptr((*uintptr)(unsafe.Pointer(&_p_.runnext)))
+			if tail == atomic.Load(&_p_.runtail) {
+				return head == tail && runnext == 0
+			}
+		}
+
+		
 
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
