@@ -418,6 +418,7 @@
 			return
 		}
 
+
 	23 runtime.newm(fn func(), _p_ *p)	
 		// 创建一个新的m，它开始于fn或者调度器的调用
 		// fn 需要是静态的并且不是堆申请的闭包
@@ -2422,6 +2423,34 @@ o
 			unlock(&sched.lock)
 			return
 		}
+
+		if _p_.runSafePointFn != 0 && atomic.Cas(&_p_.runSafePointFn, 1, 0) {
+			sched.safePointFn(_p_)
+			sched.safePointWait--
+			if sched.safePointWait == 0 {
+				notewakeup(&sched.stopnote)
+			}
+			unlock(&sched.lock)
+			return
+		}
+
+		if sched.runqsize != 0 {
+			unlock(&sched.lock)
+			startm(_p_, false)
+			return
+		}
+
+		if sched.npidle == uint32(gomaxprocs-1) && atomic.Load64(&sched.lastpoll) != 0 {
+			unlock(&sched.lock)
+			startm(_p_, false)
+			return
+		}
+
+		if when := nobarrierWakeTime(_p_); when != 0 {
+			wakeNetPoller(when)
+		}
+		pidleput(_p_)
+
 
 	83 runtime runqempty(_p_ *p) bool
 		// runqempty 获取_p_在它的本地运行队列是否有G。
