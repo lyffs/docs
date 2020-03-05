@@ -2391,11 +2391,6 @@ o
 			headoffp(_p_)
 		}
 
-		incidlelocked(1)	
-		//
-		notesleep(&_g_.m.park)
-		noteclear(&_g_.m.park)
-
 	82 runtime handoffp(_p_ *p)
 		// 通过syscall或者locked M挂起P
 		// handoffp必须在任何findrunnable返回一个G用来在_p_上运行的场景下启动一个M
@@ -2493,33 +2488,6 @@ o
 			}
 			throw("newosproc")
 		}
-
-	85 runtime pidleput(_p_ *p)
-		// 将p放在_Pidle列表中
-		// Sched必须被锁
-		// 可能在STW中运行，所以写屏障不允许
-
-		if !runqempty(_p_ *p) {
-			throw("")
-		}
-
-		// 将_p_.link设置为sched的空闲p
-		_p_.link = sched.pidle
-		// sched设置空闲p
-		sched.pidle.set(_p_)
-		// sched空闲计算加1
-		atomic.Xadd(&sched.npidle, 1)
-
-	86 runtime incidlelocked(v int32)
-		lock(&sched.lock)
-		sched.nmidlelocked+= v
-		if v > 0 {
-			checkdead()
-		}
-		unlock(&sched.lock)
-
-	87 runtime checkdead()
-			
 
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
