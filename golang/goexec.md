@@ -2519,7 +2519,233 @@ o
 		unlock(&sched.lock)
 
 	87 runtime checkdead()
-			
+		// 检查deadlock场景
+		// 这个检查是基于正在运行的M的数量，如果 0 -> deadlock		
+		// sched.lock必须持有
+		
+		// 对于-buildmode=c-shared 或者 -buildmode=c-archive 这没有问题如果没有正在运行的goroutines。
+		// 如果由于在已经空闲的线程中捕获一个信号 我们快要消失
+		// freezetheworld 将导致所有运行的线程处于阻塞
+		// runtime将本质上进入deadlock的状态会调用 除非有一个线程很快会调用exit
+		
+		if panicking > 0 {
+			return
+		}
+		
+		var run0 int32
+		if !iscgo && cgoHasExtraM {
+			mp := lockextra(true)
+			haveExtraM := extraMCount > 0
+			unlockextra(mp)
+			if haveExtraM {
+				run0 = 1
+			}
+		}
+		
+		run := mcount() - sched.nmidle - sched.nmidlelocked - sched.nmsys
+		ifrun > run0 {
+			return
+		}
+
+		if run < 0 {
+			print("")
+			throw()
+		}
+
+		grunning := 0
+		lock(&allglock)
+		for i := 0; i < len(allgs); i++ {
+			gp := allgs[i]
+			if isSystemGoroutine(gp, false) {
+				continue
+			}
+
+			s := readgstatus(gp)
+			switch s &^ _Gscan {
+				case _Gwaiting,
+					_Gpreempted:
+					grunning++
+				case _Grunnable,
+					_Grunning,
+					_Gsyscall:
+					unlock(&allglock)
+					print("")
+					throw("")
+			}
+		}
+		unlock(&allglock)
+		if grunning == 0 {
+			// 如果main goroutine调用runtime.Goexit()则可能
+			// 解锁所以GODEBUG=scheddetail=1 不会挂起
+			unlock(&sched.lock)
+			throw("")
+		}
+
+		// 可能为了playgroud将时间提前
+		if faketime != 0 {
+			when, _p_ := timeSleepUntil()	
+		}
+
+		
+
+	88 runtime isSystemGoroutine(gp *g, fixed bool)	
+		// isSystemGoroutine确认协程g在堆栈转存和死锁检查中是省略。任何协同协程开始于runtime.*的入口点，除了runtime.main, runtime.handleAsyncEvent(只是汇编)和有时runtime.runfinq
+
+		// 如果fixed是true,在用户和系统之间变化的任何goroutine被认为是用户协程
+		f := findfunc(gp.startpc)
+		if !f.valid() {
+			return false
+		}
+
+		if f.funcID == funcID_runtime_main || f.funcID == funcID_handleAsyncEvent {
+			return false
+		}
+		
+		if f.funcID == funcID_runfinq {
+			if fixed {
+				return false
+			}	
+			return !fingRunning
+		}
+		return hasPrefix(funcname(f), "runtime.")
+
+	89 runtime findfunc(pc uintptr) 
+		datap := findmoduledatap(pc)
+		if datap == nil {
+			return funcInfo{}
+		}
+
+		const nsub = uintptr(len(findfuncbucket{}.subbuckets))
+
+		x := pc - datap.minpc
+		b := x / pcbucketsize
+		i := x % pcbucketsize / (pcbucketsize / nsub)
+
+		ffb := (*findfuncbucketa)(add(unsafe.Pointer(datafunctab), b*unsafe.Sizeof(findfuncbucket{})))
+		idx := ffb.idx + uint32(ffb.subbuckets[i])
+
+		//
+		//
+		if idx >= uint32(len(datap.ftab)) {
+			idx = uint32(len(datap.ftab) -1)
+		}
+		
+		if pc < datap.ftab[idx].entry {
+			for datap.fab[idx].entry > pc && idx > 0 {
+				idx--
+			}	
+			if idx == 0 {
+				throw("")
+			}
+		} else {
+			for datap.ftab[idex+1].entry <= pc {
+				idx++
+			}
+		}
+
+		funcoff := datap.ftab[idx].funcoff
+		if funcoff == ^uintptr(0) {
+			//
+			return funcInfo{}
+		}
+		return funcInfo{(*_func)(unsafe.Pointer(&datap.pclntable[funcoff])), datap}
+
+	90 runtime findmoduledatap(pc uintptr)
+		// 遍历所有的moduledata;找出对应的datap
+		for datap := &firstmoduledata; data != nil; data = datap.next {
+			if datap.minpc <= pc && pc < datap.maxpc {
+				return datap
+			}
+		}
+		return nil
+
+	91 runtime type moduledata struct {
+		// moduledata记录可执行镜像布局的信息，它由链接器写入。这里的任何改动必须匹配在cmd/internal/ld/symtabl.go:sysmtab代码的改动. moduledata存储再静态分配的非指针的内存中;这里的指针对于垃圾收集器是不可见的。
+			pclntable []byte
+			ftab []functab
+			filetab []uint32
+			findfunctab uintptr
+			minpc, maxpc uintptr
+
+			text, etext uintptr
+			noptrdata, enoptrdata uintptr
+			data, edata uinptr
+			bss, ebss uinptr
+			noptrbss, enoptrbss uintptr
+			end, gcdata, gcbss uintptr
+			types, etypes uintptr
+
+			textsectmap []textsect
+			typelinks []int32
+			itablinks []*itab
+
+			ptab []ptabEntry
+			pluginpath string
+			pkghashes []modulehash
+
+			modulename string
+			modulehashes []modulehash
+
+			hasmain uint8
+
+			gcdatamask, gcbssmask bitvector
+
+			typemap map[typeOff]*_type
+
+			bad bool
+
+			next *moduledata
+		}			
+		  
+	92 runtime timeSleepUntil() 
+		next := int64(maxWhen)	
+		var pret *p
+
+		// 阻止allp切片返回变化。这像retake
+		lock(&allpLock)
+		for _, pp := range allp {
+			if pp == nil {
+				// 这可能发生如果procresize扩充的allp但是还没有创建新的Ps
+				continue
+			}
+
+			c := atomic.Load(&pp.adjustTimers)
+			if c == 0 {
+				w := int64(atomic.Load64(&pp.timer0When))
+				if w != 0 && w < next {
+					next = w
+					pret = pp
+				}
+				continue
+			}
+
+			lock(&pp.timesLock)
+
+			for _, t := range pp.timers {
+				switch s := atomic.Load(&t.status); s {
+					case timerWaiting:
+						if t.when < next {
+							next = t.when
+						}
+					case timerModifiedEarlier, timerModifiledLater:
+						if t.nextwhen < next {
+							next = t.nextwhen
+						}
+						if s == timerModifiedEarliser {
+							c--
+						}
+				}
+
+				//
+				if int32(c) <= 0 {
+					break
+				}
+			}
+			unlock(&pp.timersLock)
+		}
+		unlock(&allpLock)
+		
+		return next, pret
 
 	43 runtime.newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintptr)
 		// 创建一个运行fn从argp开始拥有narg字节参数的协程。callerpc是创建它的go语句地址。
